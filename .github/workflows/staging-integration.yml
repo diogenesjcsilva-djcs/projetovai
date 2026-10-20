@@ -1,4 +1,4 @@
-name: Staging integration (Neon + Redis)
+name: Staging integration (Neon + ephemeral Redis)
 
 on:
   workflow_dispatch:
@@ -23,12 +23,22 @@ jobs:
   auth-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-      REDIS_URL: ${{ secrets.STAGING_REDIS_URL }}
+      REDIS_URL: redis://127.0.0.1:6379
       RUN_INTEGRATION_TESTS: '1'
     steps:
-      - name: Require protected staging connection secrets
+      - name: Require protected Neon staging connection secret
         shell: bash
         run: |
           set -euo pipefail
@@ -36,11 +46,8 @@ jobs:
             echo "::error::Missing GitHub Actions secret STAGING_DATABASE_URL (Neon staging branch only)."
             exit 1
           fi
-          if [[ -z "${REDIS_URL}" ]]; then
-            echo "::error::Missing GitHub Actions secret STAGING_REDIS_URL (dedicated staging Redis only)."
-            exit 1
-          fi
-          echo "Required staging secrets are present; values will not be printed."
+          echo "Neon staging secret is present; its value will not be printed."
+          echo "Redis will run as an ephemeral GitHub Actions service container."
 
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -91,7 +98,7 @@ jobs:
               postgres: row.postgres_version,
               postgisEnabled: row.postgis_enabled,
               pilotCityReady: row.pilot_city_ready,
-              redis: 'reachable',
+              redis: 'reachable (ephemeral CI container)',
             }));
           } finally {
             await Promise.allSettled([pool.end(), redis.quit()]);
@@ -101,5 +108,5 @@ jobs:
       - name: Build API
         run: pnpm --filter @transporte/api build
 
-      - name: Run auth integration tests against Neon staging and Redis
+      - name: Run auth integration tests against Neon staging and ephemeral Redis
         run: pnpm --filter @transporte/api test
