@@ -36,7 +36,7 @@ CREATE TABLE users (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
-  CONSTRAINT users_phone_e164_format CHECK (phone_e164 ~ '^\\+[1-9][0-9]{7,14}$')
+  CONSTRAINT users_phone_e164_format CHECK (phone_e164 ~ '^\+[1-9][0-9]{7,14}$')
 );
 CREATE INDEX users_city_role_status_idx ON users (city_id, role, status) WHERE deleted_at IS NULL;
 
