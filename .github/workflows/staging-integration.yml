@@ -56,7 +56,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+          # The repository currently has no pnpm-lock.yaml at its root.
+          # Disable setup-node's pnpm cache until a root lockfile is committed.
+          cache: false
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
