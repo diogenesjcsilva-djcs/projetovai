@@ -2,34 +2,46 @@
 
 ## Entregas desta etapa
 - Migration inicial para cidades, usuários, perfis de motorista, veículos, desafios OTP e sessões.
-- Cidade piloto cadastrada como Paulista/PE. A área geográfica está deliberadamente vazia até receber o polígono operacional validado.
-- Contrato de segurança para concluir o fluxo OTP e a emissão/renovação de tokens.
+- Cidade piloto Paulista/PE cadastrada. A área geográfica fica vazia até receber polígono operacional validado.
+- Endpoints de solicitação/validação OTP, renovação e encerramento de sessão adicionados ao backend.
+- Guard JWT e decorator/guard de papéis disponíveis para uso explícito em controllers.
+
+## Endpoints de autenticação
+Prefixo global padrão `/api/v1`:
+- `POST /auth/otp/request`: `{"phone":"+5581999999999","role":"passenger"}`.
+- `POST /auth/otp/verify`: `{"phone":"+5581999999999","code":"123456","role":"passenger"}`.
+- `POST /auth/session/refresh`: `{"refreshToken":"..."}`; rotaciona o token.
+- `POST /auth/session/logout`: `{"refreshToken":"..."}`; revoga a sessão.
+
+O gateway SMS espera um endpoint em `SMS_API_URL` que aceite POST JSON `{"from":"...","to":"...","message":"..."}` e autenticação Bearer com `SMS_API_KEY`. É um contrato HTTP genérico, não uma integração certificada com Twilio/Zenvia/etc. Adapte e teste o gateway com o fornecedor escolhido antes do uso real.
+
+## Regras de segurança implementadas
+- Telefone validado em formato E.164 e papel público limitado a passageiro/motorista.
+- Código criptograficamente aleatório de seis dígitos, armazenado somente como HMAC e com expiração de cinco minutos.
+- Máximo de cinco tentativas por desafio; desafios anteriores são consumidos quando novo código é pedido.
+- Limites Redis por telefone e IP para pedidos de código; chaves usam hash dos valores.
+- Validação/consumo do OTP e criação de conta/sessão em transação PostgreSQL.
+- Access token HS256 de 15 minutos, com issuer/audience e algoritmo fixados.
+- Refresh token aleatório opaco, armazenado somente como SHA-256, expiração de 30 dias e rotação em renovação.
+- Logout revoga refresh token. Access tokens já emitidos continuam válidos até expirar (no máximo 15 minutos); invalidação imediata exige checagem de sessão/revogação em cada request.
+- SMS e tokens falham fechados se configuração de segredo/provedor estiver ausente. Nenhum OTP é escrito em logs.
+
+## Configuração
+Defina `AUTH_OTP_HMAC_SECRET` e `JWT_ACCESS_SECRET` com valores aleatórios de pelo menos 32 caracteres; configure `JWT_ISSUER`, `JWT_AUDIENCE`, `SMS_API_URL`, `SMS_API_KEY` e `SMS_SENDER_ID`. Não reutilize segredos de exemplo e não os comite.
 
 ## Modelo de identidade
-- Um telefone E.164 identifica uma conta (\`users.phone_e164\` é único).
-- O papel inicial é explícito: \`passenger\`, \`driver\` ou \`admin\`. A criação de uma conta administrativa nunca deve ser pública.
-- Perfil de motorista e veículo são submetidos a aprovação; cadastro não implica autorização para receber corridas.
-- O backend deve validar o estado da conta, o papel e a relação com o recurso em toda operação protegida.
+- `users.phone_e164` é único.
+- A API pública nunca cria administradores.
+- Motoristas novos recebem perfil `pending_review`; cadastro não significa aprovação para operar.
+- CNH e placa estão apenas preparadas no schema para futura criptografia; não grave documentos reais antes de implementar criptografia e gestão de chaves.
 
-## Regras obrigatórias para OTP
-1. Normalizar e validar o telefone no servidor em formato E.164.
-2. Gerar código criptograficamente aleatório de uso único; nunca aceitar o código enviado pelo cliente como prova sem validação server-side.
-3. Armazenar apenas HMAC/hash do código com segredo gerenciado, nunca o código em texto puro.
-4. Expiração curta (recomendação: 5 minutos), limite de tentativas por desafio (máximo 5) e limite de envio por telefone/IP com Redis e defesa adicional contra abuso.
-5. Invalidar desafios anteriores quando um novo for emitido; consumir o desafio atomicamente após validação.
-6. Respostas de solicitação não devem revelar se o telefone já possui conta.
-7. Não registrar telefone completo, OTP, token, segredo ou payload sensível em logs.
-8. Se o provedor SMS estiver indisponível, falhar de modo seguro. Não criar fallback de OTP em logs em produção.
+## Migration
+A migration fica em `apps/api/database/migrations/0001_initial_schema.sql`. Faça backup antes de aplicar em ambiente com dados. Ainda não há runner automático; não execute schema no boot da API.
 
-## Sessões e tokens
-- Access token de curta duração (ex.: 10–15 minutos), assinado com chave/secreto gerenciado e validado pelo servidor.
-- Refresh token opaco e aleatório, armazenar somente hash; rotacionar a cada uso, revogar em logout e detectar reutilização.
-- Verificar issuer, audience, expiração e algoritmo permitido; nunca aceitar algoritmo escolhido pelo token.
-- Aplicativos móveis devem armazenar tokens em armazenamento seguro do sistema operacional.
-- Implementar rate limiting no endpoint, TLS obrigatório e CORS restrito por ambiente.
-
-## Aplicação da migration
-A migration está em \`apps/api/database/migrations/0001_initial_schema.sql\`. Faça backup antes de aplicar em ambiente com dados. Para desenvolvimento local, suba o PostGIS via Docker Compose e aplique a migration com uma ferramenta aprovada pela equipe. Ainda não há runner de migrations automático; não execute SQL de schema automaticamente no boot da API.
-
-## O que ainda não está concluído
-Esta migration define a estrutura de dados, mas não ativa endpoints OTP, provedor SMS, emissão/renovação JWT, guards de autorização nem telas móveis. Isso deve ser concluído e testado antes de qualquer exposição pública da API.
+## Antes de uso real
+- Atualizar lockfile e instalar dependências com pnpm.
+- Adaptar e testar o gateway SMS com o fornecedor escolhido.
+- Executar migration, build, testes e testes de integração com PostgreSQL/Redis.
+- Adicionar testes de integração para OTP expirado/reutilizado, rate limit e rotação concorrente de refresh.
+- Proteger rotas de negócio com guards e checagem de propriedade de recurso; guards não são aplicados globalmente por padrão.
+- Configurar TLS, observabilidade, backups, políticas LGPD e proteção contra abuso.
