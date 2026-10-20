@@ -102,4 +102,25 @@ integrationDescribe('AuthService PostgreSQL/Redis integration', () => {
     );
     expect(result.rows).toEqual([{ status: 'pending_review' }]);
   }, 15000);
+
+  it('locks an OTP challenge after five invalid attempts', async () => {
+    await service.requestOtp({ phone, role: 'passenger' }, requestIp);
+    expect(sentCode).toMatch(/^\\d{6}$/);
+    const wrongCode = sentCode === '000000' ? '000001' : '000000';
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(service.verifyOtp({ phone, code: wrongCode, role: 'passenger' }))
+        .rejects.toThrow();
+    }
+    await expect(service.verifyOtp({ phone, code: sentCode!, role: 'passenger' }))
+      .rejects.toThrow();
+
+    const challenge = await postgres.query<{ attempts: number; consumed_at: Date | null }>(
+      'SELECT attempts, consumed_at FROM auth_otp_challenges WHERE phone_e164 = $1 ORDER BY created_at DESC LIMIT 1',
+      [phone],
+    );
+    expect(challenge.rows[0].attempts).toBe(5);
+    expect(challenge.rows[0].consumed_at).toBeNull();
+  }, 15000);
+
 });
