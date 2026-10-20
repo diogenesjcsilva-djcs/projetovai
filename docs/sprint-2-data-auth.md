@@ -5,6 +5,7 @@
 - Cidade piloto Paulista/PE cadastrada. A área geográfica fica vazia até receber polígono operacional validado.
 - Endpoints de solicitação/validação OTP, renovação e encerramento de sessão adicionados ao backend.
 - Guard JWT e decorator/guard de papéis disponíveis para uso explícito em controllers.
+- Gateway SMS adaptado para a API REST da Zenvia.
 
 ## Endpoints de autenticação
 Prefixo global padrão `/api/v1`:
@@ -13,7 +14,15 @@ Prefixo global padrão `/api/v1`:
 - `POST /auth/session/refresh`: `{"refreshToken":"..."}`; rotaciona o token.
 - `POST /auth/session/logout`: `{"refreshToken":"..."}`; revoga a sessão.
 
-O gateway SMS espera um endpoint em `SMS_API_URL` que aceite POST JSON `{"from":"...","to":"...","message":"..."}` e autenticação Bearer com `SMS_API_KEY`. É um contrato HTTP genérico, não uma integração certificada com Twilio/Zenvia/etc. Adapte e teste o gateway com o fornecedor escolhido antes do uso real.
+## Integração SMS — Zenvia
+O gateway envia para `https://api.zenvia.com/v1/channels/sms/messages` com:
+- Cabeçalho `X-API-TOKEN: $SMS_API_KEY` e `Content-Type: application/json`.
+- Corpo `from`, `to` e `contents: [{ "type": "text", "text": "..." }]`, conforme a API de SMS da Zenvia.
+- Variáveis de ambiente: `SMS_PROVIDER=zenvia`, `SMS_API_KEY` (token privado) e `SMS_SENDER_ID` (remetente previamente configurado na conta).
+
+Antes do teste real, confirme que o canal SMS está ativado, que o token tem permissão para envio e que o sender ID está habilitado para sua conta. O teste unitário usa fetch simulado e não envia SMS nem requer credenciais. Nunca grave tokens no repositório, em logs ou no corpo de respostas ao cliente. Em produção, use o gerenciador de secrets da hospedagem.
+
+Referência: [documentação oficial da API Zenvia](https://zenvia.github.io/zenvia-openapi-spec/v1/).
 
 ## Regras de segurança implementadas
 - Telefone validado em formato E.164 e papel público limitado a passageiro/motorista.
@@ -27,7 +36,7 @@ O gateway SMS espera um endpoint em `SMS_API_URL` que aceite POST JSON `{"from":
 - SMS e tokens falham fechados se configuração de segredo/provedor estiver ausente. Nenhum OTP é escrito em logs.
 
 ## Configuração
-Defina `AUTH_OTP_HMAC_SECRET` e `JWT_ACCESS_SECRET` com valores aleatórios de pelo menos 32 caracteres; configure `JWT_ISSUER`, `JWT_AUDIENCE`, `SMS_API_URL`, `SMS_API_KEY` e `SMS_SENDER_ID`. Não reutilize segredos de exemplo e não os comite.
+Defina `AUTH_OTP_HMAC_SECRET` e `JWT_ACCESS_SECRET` com valores aleatórios de pelo menos 32 caracteres; configure `JWT_ISSUER`, `JWT_AUDIENCE`, `SMS_PROVIDER=zenvia`, `SMS_API_KEY` e `SMS_SENDER_ID`. Não reutilize segredos de exemplo e não os comite.
 
 ## Modelo de identidade
 - `users.phone_e164` é único.
@@ -39,9 +48,9 @@ Defina `AUTH_OTP_HMAC_SECRET` e `JWT_ACCESS_SECRET` com valores aleatórios de p
 A migration fica em `apps/api/database/migrations/0001_initial_schema.sql`. Faça backup antes de aplicar em ambiente com dados. Ainda não há runner automático; não execute schema no boot da API.
 
 ## Antes de uso real
-- Atualizar lockfile e instalar dependências com pnpm.
-- Adaptar e testar o gateway SMS com o fornecedor escolhido.
-- Executar migration, build, testes e testes de integração com PostgreSQL/Redis.
-- Adicionar testes de integração para OTP expirado/reutilizado, rate limit e rotação concorrente de refresh.
+- Instalar dependências com pnpm e confirmar o lockfile no CI.
+- Executar migration em banco isolado, build, testes unitários e testes de integração com PostgreSQL/Redis.
+- Testar OTP expirado/reutilizado, rate limit e rotação concorrente de refresh.
 - Proteger rotas de negócio com guards e checagem de propriedade de recurso; guards não são aplicados globalmente por padrão.
 - Configurar TLS, observabilidade, backups, políticas LGPD e proteção contra abuso.
+- Fazer teste de envio controlado com número autorizado na conta Zenvia; o teste unitário não comprova a entrega na operadora.
