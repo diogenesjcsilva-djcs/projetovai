@@ -1,8 +1,9 @@
 import {
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
-  TooManyRequestsException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -239,7 +240,9 @@ export class AuthService {
   private async applyRateLimit(key: string, limit: number, ttlSeconds: number): Promise<void> {
     const count = await this.redis.incr(key);
     if (count === 1) await this.redis.expire(key, ttlSeconds);
-    if (count > limit) throw new TooManyRequestsException('Tente novamente mais tarde');
+    if (count > limit) {
+      throw new HttpException('Tente novamente mais tarde', HttpStatus.TOO_MANY_REQUESTS);
+    }
   }
 
   private digest(value: string): string {
