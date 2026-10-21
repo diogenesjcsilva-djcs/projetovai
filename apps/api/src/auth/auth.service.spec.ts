@@ -47,14 +47,13 @@ describe('SmsGateway SMSGo integration', () => {
   it('exchanges the API key for a token and sends an OTP request', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'test-bearer-token' }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'test-id', status: 'queued' }) });
-
+      .mockResolvedValueOnce({ ok: true, status: 200 });
     await expect(gateway.sendOtp('+5581999999999', '123456')).resolves.toBeUndefined();
+
     expect(global.fetch).toHaveBeenCalledTimes(2);
     const [tokenUrl, tokenOptions] = (global.fetch as jest.Mock).mock.calls[0];
     expect(tokenUrl).toBe('https://api.smsgo.com.br/v1/auth/token');
     expect(tokenOptions.headers['SMSGo-key']).toBe('unit-test-key');
-
     const [sendUrl, sendOptions] = (global.fetch as jest.Mock).mock.calls[1];
     expect(sendUrl).toBe('https://api.smsgo.com.br/v1/sms/send/single');
     expect(sendOptions.headers.authorization).toBe('Bearer test-bearer-token');
@@ -63,6 +62,19 @@ describe('SmsGateway SMSGo integration', () => {
       message: expect.stringContaining('123456'),
       smsTypeId: 2,
     });
+  });
+
+  it('reuses the cached token for subsequent OTP messages', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'test-bearer-token' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    await gateway.sendOtp('+5581999999999', '123456');
+    await gateway.sendOtp('+5581888888888', '654321');
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toContain('/sms/send/single');
+    expect((global.fetch as jest.Mock).mock.calls[2][0]).toContain('/sms/send/single');
   });
 
   it('fails closed for an unsupported provider', async () => {
