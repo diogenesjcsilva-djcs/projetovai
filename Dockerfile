@@ -7,9 +7,7 @@ RUN corepack enable && corepack prepare pnpm@9.15.5 --activate
 WORKDIR /workspace
 COPY . .
 
-# The repository currently has no committed pnpm-lock.yaml.
-# Once a lockfile is added, switch to --frozen-lockfile for reproducible builds.
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @transporte/api build
 
 ENV NODE_ENV=production
