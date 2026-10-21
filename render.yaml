@@ -7,7 +7,7 @@ services:
     branch: feat/sprint-2-data-auth-foundation
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    autoDeploy: false
+    autoDeployTrigger: 'off'
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
