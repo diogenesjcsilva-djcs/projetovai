@@ -29,8 +29,6 @@ services:
       - key: JWT_AUDIENCE
         value: projetovai-clients
       - key: SMS_PROVIDER
-        value: zenvia
-      - key: SMS_API_KEY
-        sync: false
-      - key: SMS_SENDER_ID
+        value: smsgo
+      - key: SMSGO_API_KEY
         sync: false
