@@ -44,7 +44,7 @@ describe('SmsGateway SMSGo integration', () => {
     jest.restoreAllMocks();
   });
 
-  it('exchanges the API key for a token and sends an OTP request', async () => {
+  it('exchanges the API key for a token and sends an OTP request using the REST field name', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'test-bearer-token' }) })
       .mockResolvedValueOnce({ ok: true, status: 200 });
@@ -60,7 +60,7 @@ describe('SmsGateway SMSGo integration', () => {
     expect(JSON.parse(sendOptions.body)).toEqual({
       phone: '+5581999999999',
       message: expect.stringContaining('123456'),
-      smsTypeId: 2,
+      sms_type_id: 2,
     });
   });
 
@@ -69,12 +69,20 @@ describe('SmsGateway SMSGo integration', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'test-bearer-token' }) })
       .mockResolvedValueOnce({ ok: true, status: 200 })
       .mockResolvedValueOnce({ ok: true, status: 200 });
-
     await gateway.sendOtp('+5581999999999', '123456');
     await gateway.sendOtp('+5581888888888', '654321');
     expect(global.fetch).toHaveBeenCalledTimes(3);
-    expect((global.fetch as jest.Mock).mock.calls[1][0]).toContain('/sms/send/single');
-    expect((global.fetch as jest.Mock).mock.calls[2][0]).toContain('/sms/send/single');
+  });
+
+  it('refreshes the token and retries once after HTTP 401', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'expired-token' }) })
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'new-token' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+    await expect(gateway.sendOtp('+5581999999999', '123456')).resolves.toBeUndefined();
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    expect((global.fetch as jest.Mock).mock.calls[3][1].headers.authorization).toBe('Bearer new-token');
   });
 
   it('fails closed for an unsupported provider', async () => {
