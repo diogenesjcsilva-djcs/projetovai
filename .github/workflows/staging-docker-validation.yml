@@ -1,0 +1,118 @@
+name: Staging Docker validation
+
+on:
+  push:
+    branches:
+      - feat/sprint-2-data-auth-foundation
+    paths:
+      - '.github/workflows/staging-docker-validation.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - 'apps/api/**'
+      - 'packages/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/staging-docker-validation.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - 'apps/api/**'
+      - 'packages/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: projetovai-staging-docker-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: projetovai_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d projetovai_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: projetovai_test
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/projetovai_test
+      REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          persist-credentials: true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate workspace lockfile
+        run: pnpm install --lockfile-only
+
+      - name: Install exactly the lockfile dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate database migration
+        run: psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0001_initial_schema.sql
+
+      - name: Build API
+        run: pnpm --filter @transporte/api build
+
+      - name: Run unit and integration tests
+        run: RUN_INTEGRATION_TESTS=1 pnpm --filter @transporte/api test
+
+      - name: Build staging Docker image (no deploy)
+        run: docker build --tag projetovai-api-staging:validation .
+
+      - name: Commit generated lockfile on feature branch after successful validation
+        if: success() && github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- pnpm-lock.yaml && git ls-files --error-unmatch pnpm-lock.yaml >/dev/null 2>&1; then
+            echo "Lockfile already tracked and unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          if git diff --cached --quiet; then
+            echo "No lockfile changes to commit."
+            exit 0
+          fi
+          git commit -m "build: add validated pnpm lockfile"
+          git push origin "HEAD:${{ github.ref_name }}"
