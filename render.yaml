@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: projetovai-api-staging
+    runtime: docker
+    plan: free
+    region: ohio
+    branch: feat/sprint-2-data-auth-foundation
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: false
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PREFIX
+        value: api/v1
+      - key: CORS_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: AUTH_OTP_HMAC_SECRET
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_ISSUER
+        value: projetovai
+      - key: JWT_AUDIENCE
+        value: projetovai-clients
+      - key: SMS_PROVIDER
+        value: zenvia
+      - key: SMS_API_KEY
+        sync: false
+      - key: SMS_SENDER_ID
+        sync: false
