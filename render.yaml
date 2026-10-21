@@ -3,7 +3,7 @@ services:
     name: projetovai-api-staging
     runtime: docker
     plan: free
-    region: ohio
+    region: virginia
     branch: feat/sprint-2-data-auth-foundation
     dockerfilePath: ./Dockerfile
     dockerContext: .
