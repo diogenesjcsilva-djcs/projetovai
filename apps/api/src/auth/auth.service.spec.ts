@@ -106,7 +106,7 @@ describe('SmsGateway SMSGo integration', () => {
   });
 
   it('logs provider HTTP status without exposing credentials, phone, or OTP', async () => {
-    const warn = jest.spyOn(require('@nestjs/common').Logger.prototype, 'warn').mockImplementation();
+    const warn = jest.spyOn(require('@nestjs/common').Logger.prototype, 'warn').mockImplementation(() => undefined);
     const error = jest.spyOn(require('@nestjs/common').Logger.prototype, 'error').mockImplementation();
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'secret-bearer-token' }) })
