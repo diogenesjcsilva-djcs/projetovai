@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './health/health.module';
 import { InfrastructureModule } from './infrastructure/infrastructure.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { InfrastructureModule } from './infrastructure/infrastructure.module';
       cache: true,
     }),
     InfrastructureModule,
+    AuthModule,
     HealthModule,
   ],
 })

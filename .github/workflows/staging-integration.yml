@@ -1,0 +1,112 @@
+name: Staging integration (Neon + ephemeral Redis)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/sprint-2-data-auth-foundation
+    paths:
+      - '.github/workflows/staging-integration.yml'
+      - 'apps/api/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: projetovai-staging-integration
+  cancel-in-progress: false
+
+jobs:
+  auth-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+      REDIS_URL: redis://127.0.0.1:6379
+      RUN_INTEGRATION_TESTS: '1'
+    steps:
+      - name: Require protected Neon staging connection secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DATABASE_URL}" ]]; then
+            echo "::error::Missing GitHub Actions secret STAGING_DATABASE_URL (Neon staging branch only)."
+            exit 1
+          fi
+          echo "Neon staging secret is present; its value will not be printed."
+          echo "Redis will run as an ephemeral GitHub Actions service container."
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # Omit the cache option: setup-node cache requires a lockfile.
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Verify staging service connectivity
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @transporte/api exec node --input-type=module <<'NODE'
+          import pg from 'pg';
+          import Redis from 'ioredis';
+
+          const pool = new pg.Pool({
+            connectionString: process.env.DATABASE_URL,
+            connectionTimeoutMillis: 8000,
+            max: 1,
+          });
+          const redis = new Redis(process.env.REDIS_URL, {
+            connectTimeout: 8000,
+            maxRetriesPerRequest: 1,
+            lazyConnect: true,
+          });
+
+          try {
+            const result = await pool.query(`
+              SELECT current_database() AS database_name,
+                     current_setting('server_version') AS postgres_version,
+                     EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') AS postgis_enabled,
+                     EXISTS (SELECT 1 FROM public.cities WHERE slug = 'paulista-pe' AND is_active = true) AS pilot_city_ready
+            `);
+            const row = result.rows[0];
+            if (!row || row.database_name !== 'projetovai' || !row.postgis_enabled || !row.pilot_city_ready) {
+              throw new Error('Neon staging database preflight did not match expected database/schema/city.');
+            }
+            await redis.connect();
+            await redis.ping();
+            console.log(JSON.stringify({
+              database: row.database_name,
+              postgres: row.postgres_version,
+              postgisEnabled: row.postgis_enabled,
+              pilotCityReady: row.pilot_city_ready,
+              redis: 'reachable (ephemeral CI container)',
+            }));
+          } finally {
+            await Promise.allSettled([pool.end(), redis.quit()]);
+          }
+          NODE
+
+      - name: Build API
+        run: pnpm --filter @transporte/api build
+
+      - name: Run auth integration tests against Neon staging and ephemeral Redis
+        run: pnpm --filter @transporte/api test
