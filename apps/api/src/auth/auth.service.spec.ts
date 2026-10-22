@@ -105,6 +105,24 @@ describe('SmsGateway SMSGo integration', () => {
       .rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
+  it('logs provider HTTP status without exposing credentials, phone, or OTP', async () => {
+    const warn = jest.spyOn(require('@nestjs/common').Logger.prototype, 'warn').mockImplementation();
+    const error = jest.spyOn(require('@nestjs/common').Logger.prototype, 'error').mockImplementation();
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: 'secret-bearer-token' }) })
+      .mockResolvedValueOnce({ ok: false, status: 402 });
+
+    await expect(gateway.sendOtp('+5581999999999', '123456'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    const logged = [...warn.mock.calls, ...error.mock.calls].flat().join(' ');
+    expect(logged).toContain('status=402');
+    expect(logged).not.toContain('secret-bearer-token');
+    expect(logged).not.toContain('unit-test-key');
+    expect(logged).not.toContain('+5581999999999');
+    expect(logged).not.toContain('123456');
+  });
+
   it('handles network failures with a generic response', async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error('provider internal error'));
     await expect(gateway.sendOtp('+5581999999999', '123456'))
