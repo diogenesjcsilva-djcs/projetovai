@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172554">
+  <meta name="description" content="Painel administrativo do ProjetoVai.">
+  <title>ProjetoVai · Painel administrativo</title>
+  <style>
+    :root{color-scheme:light;--navy:#172554;--blue:#2563eb;--muted:#64748b;--line:#e2e8f0;--bg:#f8fafc}
+    *{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0f172a;background:var(--bg)}
+    header{background:var(--navy);color:white;padding:24px clamp(20px,5vw,64px)}header strong{font-size:1.2rem;letter-spacing:.02em}header p{margin:4px 0 0;color:#cbd5e1}
+    main{max-width:960px;margin:40px auto;padding:0 20px}.eyebrow{font-size:.78rem;text-transform:uppercase;letter-spacing:.12em;color:var(--blue);font-weight:700}
+    h1{font-size:clamp(1.8rem,4vw,2.5rem);line-height:1.15;margin:8px 0 12px}.intro{max-width:650px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin:28px 0}
+    .card{background:white;border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 2px 8px #0f172a08}
+    .card h2{font-size:1.05rem;margin:0 0 8px}.card p{margin:0;color:var(--muted)}
+    .pill{display:inline-block;border-radius:999px;padding:4px 10px;font-size:.78rem;font-weight:700;background:#dbeafe;color:#1d4ed8;margin-bottom:12px}
+    .notice{border-left:4px solid var(--blue);background:#eff6ff;padding:16px 18px;border-radius:8px;color:#1e3a8a}
+    footer{max-width:960px;margin:40px auto;padding:0 20px 32px;color:var(--muted);font-size:.875rem}
+  </style>
+</head>
+<body>
+  <header><strong>ProjetoVai</strong><p>Painel administrativo · ambiente inicial</p></header>
+  <main>
+    <div class="eyebrow">Central de operação</div>
+    <h1>Painel administrativo</h1>
+    <p class="intro">Esta é a base visual do painel do ProjetoVai. As funções operacionais serão habilitadas somente após a implementação de autenticação administrativa, permissões e auditoria.</p>
+    <section class="grid" aria-label="Estado dos módulos">
+      <article class="card"><span class="pill">Planejado</span><h2>Viagens e solicitações</h2><p>Consulta e acompanhamento de viagens, com acesso restrito por perfil.</p></article>
+      <article class="card"><span class="pill">Planejado</span><h2>Passageiros e motoristas</h2><p>Gestão de contas e verificações, com registro de ações administrativas.</p></article>
+      <article class="card"><span class="pill">Planejado</span><h2>Saúde da plataforma</h2><p>Indicadores operacionais sem expor segredos, códigos de autenticação ou dados pessoais desnecessários.</p></article>
+    </section>
+    <div class="notice"><strong>Importante:</strong> nenhum dado real ou ação administrativa está disponível nesta versão. Não use este painel para operar contas ou viagens.</div>
+  </main>
+  <footer>ProjetoVai · MVP em desenvolvimento · acesso administrativo ainda não habilitado.</footer>
+</body>
+</html>
