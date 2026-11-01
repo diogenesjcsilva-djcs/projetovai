@@ -35,3 +35,12 @@ export class DriverLocationDto extends CoordinateDto {
   @IsOptional() @IsBoolean()
   isAvailable?: boolean;
 }
+
+
+export class RideEstimateDto {
+  @ValidateNested() @Type(() => CoordinateDto)
+  pickup!: CoordinateDto;
+
+  @ValidateNested() @Type(() => CoordinateDto)
+  destination!: CoordinateDto;
+}
