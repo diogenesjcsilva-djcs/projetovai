@@ -53,12 +53,14 @@ export class RidesService {
           ...this.point(dto.destination), dto.destinationAddress,
           dto.estimatedDistanceMeters ?? null, dto.estimatedDurationSeconds ?? null, idempotencyKey],
       );
+      const ride = result.rows[0];
+      if (!ride) throw new BadRequestException('Não foi possível criar a corrida');
       await this.db.query(
         `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
          VALUES ($1, $2, NULL, 'requested', 'ride_requested')`,
-        [result.rows[0].id, account.id],
+        [ride.id, account.id],
       );
-      return result.rows[0];
+      return ride;
     } catch (error: any) {
       if (error?.code === '23505') {
         const existing = await this.db.query<RideRow>(
@@ -153,7 +155,7 @@ export class RidesService {
       driver: ['driver_arriving', 'in_progress', 'completed', 'cancelled'],
       admin: [],
     };
-    if (!allowed[account.role].includes(dto.status)) throw new ForbiddenException('Transição não permitida');
+    if (!(allowed[account.role] ?? []).includes(dto.status)) throw new ForbiddenException('Transição não permitida');
     if (account.role === 'passenger' && ride.passenger_user_id !== account.id) throw new ForbiddenException('Sem acesso a esta corrida');
     if (account.role === 'driver' && ride.driver_user_id !== account.id) throw new ForbiddenException('Sem acesso a esta corrida');
 
