@@ -130,10 +130,10 @@ export class RidesService {
     } finally { client.release(); }
   }
 
-  async updateStatus(user: AuthenticatedRequest['user'], rideId: string, dto: RideStatusDto) {
+  async updateStatus(user: AuthenticatedRequest['user'], rideId: string, dto: RideStatusDto) {\n    const client = await this.db.connect();\n    try {\n      await client.query('BEGIN');
     const account = await this.activeUser(user.sub);
     if (!account) throw new ForbiddenException('Conta indisponível');
-    const current = await this.db.query<RideRow>(
+    const current = await client.query<RideRow>(
       `SELECT id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
         destination_address, estimated_distance_meters, estimated_duration_seconds,
         estimated_fare_cents, final_fare_cents FROM rides WHERE id = $1 FOR UPDATE`, [rideId],
