@@ -48,8 +48,11 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
-      - name: Validate initial PostgreSQL/PostGIS migration
-        run: psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0001_initial_schema.sql
+      - name: Validate PostgreSQL/PostGIS migrations
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0001_initial_schema.sql
+          psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0002_rides_foundation.sql
       - name: Build API
         run: pnpm --filter @transporte/api build
       - name: Run unit and integration tests

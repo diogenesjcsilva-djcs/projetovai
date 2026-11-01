@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/sprint-2-data-auth-foundation
+      - feat/sprint-3-rides-foundation
     paths:
       - '.github/workflows/staging-docker-validation.yml'
       - 'Dockerfile'
@@ -12,6 +13,7 @@ on:
       - 'pnpm-workspace.yaml'
       - 'apps/api/**'
       - 'packages/**'
+      - 'docs/sprint-3-rides-foundation.md'
   pull_request:
     branches:
       - main
@@ -86,8 +88,11 @@ jobs:
       - name: Install exactly the lockfile dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate database migration
-        run: psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0001_initial_schema.sql
+      - name: Validate PostgreSQL/PostGIS migrations
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0001_initial_schema.sql
+          psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0002_rides_foundation.sql
 
       - name: Build API
         run: pnpm --filter @transporte/api build
