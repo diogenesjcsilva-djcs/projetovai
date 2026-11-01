@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, Inject } from '@nestjs/common';
 import { Pool } from 'pg';
 import { POSTGRES } from '../infrastructure/infrastructure.module';
 import { AuthenticatedRequest } from '../auth/access-token.guard';
@@ -24,6 +24,53 @@ export class RidesService {
 
   private point(dto: { latitude: number; longitude: number }) {
     return [dto.longitude, dto.latitude];
+  }
+
+  async estimate(user: AuthenticatedRequest['user'], dto: { pickup: { latitude: number; longitude: number }; destination: { latitude: number; longitude: number } }) {
+    if (user.role !== 'passenger') throw new ForbiddenException('Apenas passageiros podem estimar corridas');
+    if (dto.pickup.latitude === dto.destination.latitude && dto.pickup.longitude === dto.destination.longitude) {
+      throw new BadRequestException('Origem e destino devem ser diferentes');
+    }
+    const account = await this.activeUser(user.sub);
+    if (!account || account.role !== 'passenger' || !account.city_id) {
+      throw new ForbiddenException('Conta indisponível para estimar corrida');
+    }
+
+    const policyResult = await this.db.query(
+      `SELECT id, version, base_fare_cents, price_per_km_cents, price_per_minute_cents,
+        minimum_fare_cents, currency, effective_from, effective_until
+       FROM city_pricing_policies
+       WHERE city_id = $1 AND is_active = true
+         AND effective_from <= now()
+         AND (effective_until IS NULL OR effective_until > now())
+       ORDER BY version DESC LIMIT 1`,
+      [account.city_id],
+    );
+    const policy = policyResult.rows[0];
+    if (!policy) {
+      throw new ServiceUnavailableException('Política tarifária indisponível para esta cidade');
+    }
+
+    const radians = (degrees: number) => degrees * Math.PI / 180;
+    const lat1 = radians(dto.pickup.latitude);
+    const lat2 = radians(dto.destination.latitude);
+    const deltaLat = lat2 - lat1;
+    const deltaLon = radians(dto.destination.longitude - dto.pickup.longitude);
+    const a = Math.sin(deltaLat / 2) ** 2
+      + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+    const distanceMeters = Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+
+    return {
+      cityId: account.city_id,
+      policy: { id: policy.id, version: policy.version, currency: policy.currency },
+      distance: { meters: distanceMeters, method: 'haversine_straight_line' },
+      durationSeconds: null,
+      fare: null,
+      fareAvailable: false,
+      reason: 'ROUTE_DURATION_UNAVAILABLE',
+      message: 'A tarifa depende da duração estimada da rota viária. Essa informação ainda não está disponível.',
+      validUntil: new Date(Date.now() + 60_000).toISOString(),
+    };
   }
 
   async create(user: AuthenticatedRequest['user'], dto: CreateRideDto, idempotencyKey: string) {
