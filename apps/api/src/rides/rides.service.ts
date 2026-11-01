@@ -135,7 +135,7 @@ export class RidesService {
     try {
       await client.query('BEGIN');
       const accountResult = await client.query(
-        \`SELECT id, role, city_id FROM users WHERE id = $1 AND status = 'active' AND deleted_at IS NULL\`,
+        `SELECT id, role, city_id FROM users WHERE id = $1 AND status = 'active' AND deleted_at IS NULL`,
         [user.sub],
       );
       const account = accountResult.rows[0] as { id: string; role: 'passenger'|'driver'|'admin'; city_id: string | null } | undefined;
