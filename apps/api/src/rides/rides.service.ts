@@ -130,7 +130,10 @@ export class RidesService {
     } finally { client.release(); }
   }
 
-  async updateStatus(user: AuthenticatedRequest['user'], rideId: string, dto: RideStatusDto) {\n    const client = await this.db.connect();\n    try {\n      await client.query('BEGIN');
+  async updateStatus(user: AuthenticatedRequest['user'], rideId: string, dto: RideStatusDto) {
+    const client = await this.db.connect();
+    try {
+      await client.query('BEGIN');
     const account = await this.activeUser(user.sub);
     if (!account) throw new ForbiddenException('Conta indisponível');
     const current = await client.query<RideRow>(
@@ -163,7 +166,7 @@ export class RidesService {
     if (dto.status === 'completed' && account.role !== 'driver') throw new ForbiddenException('Apenas o motorista conclui a corrida');
     if (dto.finalFareCents !== undefined && dto.status !== 'completed') throw new BadRequestException('Tarifa final só pode ser definida na conclusão');
 
-    const result = await this.db.query<RideRow>(
+    const result = await client.query<RideRow>(
       `UPDATE rides SET status = $2,
          started_at = CASE WHEN $2 = 'in_progress' THEN now() ELSE started_at END,
          completed_at = CASE WHEN $2 = 'completed' THEN now() ELSE completed_at END,
@@ -175,12 +178,19 @@ export class RidesService {
          estimated_fare_cents, final_fare_cents`,
       [rideId, dto.status, dto.finalFareCents ?? null],
     );
-    await this.db.query(
+    await client.query(
       `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
        VALUES ($1, $2, $3, $4, 'status_changed')`,
       [rideId, account.id, ride.status, dto.status],
     );
+    await client.query('COMMIT');
     return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async updateLocation(user: AuthenticatedRequest['user'], dto: DriverLocationDto) {
