@@ -134,7 +134,11 @@ export class RidesService {
     const client = await this.db.connect();
     try {
       await client.query('BEGIN');
-    const account = await this.activeUser(user.sub);
+      const accountResult = await client.query(
+        \`SELECT id, role, city_id FROM users WHERE id = $1 AND status = 'active' AND deleted_at IS NULL\`,
+        [user.sub],
+      );
+      const account = accountResult.rows[0] as { id: string; role: 'passenger'|'driver'|'admin'; city_id: string | null } | undefined;
     if (!account) throw new ForbiddenException('Conta indisponível');
     const current = await client.query<RideRow>(
       `SELECT id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
