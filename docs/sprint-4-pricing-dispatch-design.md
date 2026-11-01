@@ -12,6 +12,18 @@ Definir e implementar o primeiro fluxo de estimativa e seleção de motoristas s
 - O aceite individual já valida motorista ativo, perfil aprovado, disponibilidade, localização recente e cidade da corrida.
 - A criação da corrida ainda inicia em `requested`; não há seleção ordenada de candidatos nem transição automática para `searching`.
 
+## Tabela configurável no banco
+
+A migration `0003_city_pricing_policies.sql` cria `city_pricing_policies`, vinculada a `cities`, com:
+
+- Tarifa base, preço por km, preço por minuto e tarifa mínima, todos em centavos de BRL.
+- Taxa de cancelamento, espera por minuto, adicional noturno e limite de adicional por demanda.
+- Raio inicial/máximo de busca, idade máxima da localização do motorista e duração de cada onda de busca.
+- Versão, vigência, estado ativo e histórico de alterações.
+- Restrições para impedir valores negativos, intervalos inválidos, raio máximo menor que o inicial e mais de uma política ativa por cidade.
+
+Não foi inserida tarifa inicial para Paulista: os valores comerciais ainda não foram aprovados. A aplicação deverá responder como política indisponível até que uma versão seja cadastrada e ativada. Para alterar preços, desative a versão vigente e insira uma nova versão; não edite o histórico.
+
 ## Decisões técnicas propostas
 
 ### 1. Estimativa
