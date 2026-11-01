@@ -1,4 +1,4 @@
-# Plataforma de Transporte — Sprint 1
+# Plataforma de Transporte — Sprint 1 e fundação da Sprint 2
 
 Base inicial para uma plataforma de transporte sob demanda, com cidade piloto em Paulista/PE.
 
@@ -12,7 +12,7 @@ Base inicial para uma plataforma de transporte sob demanda, com cidade piloto em
 - PostgreSQL com PostGIS e Redis para desenvolvimento local via Docker Compose.
 - Pipeline inicial de CI no GitHub Actions.
 
-Esta é apenas a fundação. Autenticação por SMS, corridas, despacho, mapas, notificações e pagamentos ainda não estão implementados.
+A Sprint 2 inclui a modelagem de dados em `apps/api/database/migrations/0001_initial_schema.sql` e uma primeira implementação de endpoints OTP/sessão. O envio real de SMS depende de configurar/adaptar um provedor compatível; as rotas de negócio, corridas, despacho, mapas, notificações e pagamentos ainda não estão implementados. Consulte `docs/sprint-2-data-auth.md`.
 
 ## Pré-requisitos
 
