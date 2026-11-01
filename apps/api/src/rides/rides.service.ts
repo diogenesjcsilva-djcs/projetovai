@@ -115,21 +115,31 @@ export class RidesService {
       );
       if (!eligible.rows[0]) throw new ForbiddenException('Motorista indisponível para aceitar corridas');
 
-      const updated = await client.query<RideRow>(
-        `UPDATE rides
-         SET driver_user_id = $2, status = 'accepted', accepted_at = now(), updated_at = now()
-         WHERE id = $1 AND city_id = (SELECT city_id FROM users WHERE id = $2)
-           AND status IN ('requested', 'searching') AND driver_user_id IS NULL
-         RETURNING id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
-           destination_address, estimated_distance_meters, estimated_duration_seconds,
-           estimated_fare_cents, final_fare_cents`,
+      const updated = await client.query<RideRow & { previous_status: string }>(
+        `WITH candidate AS (
+           SELECT id, status AS previous_status
+           FROM rides
+           WHERE id = $1 AND city_id = (SELECT city_id FROM users WHERE id = $2)
+             AND status IN ('requested', 'searching') AND driver_user_id IS NULL
+           FOR UPDATE
+         ), changed AS (
+           UPDATE rides r
+           SET driver_user_id = $2, status = 'accepted', accepted_at = now(), updated_at = now()
+           FROM candidate c
+           WHERE r.id = c.id
+           RETURNING r.id, r.city_id, r.passenger_user_id, r.driver_user_id, r.status,
+             r.pickup_address, r.destination_address, r.estimated_distance_meters,
+             r.estimated_duration_seconds, r.estimated_fare_cents, r.final_fare_cents,
+             c.previous_status
+         )
+         SELECT * FROM changed`,
         [rideId, user.sub],
       );
       if (!updated.rows[0]) throw new ConflictException('Corrida não está disponível');
       await client.query(
         `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
-         VALUES ($1, $2, 'requested', 'accepted', 'ride_accepted')`,
-        [rideId, user.sub],
+         VALUES ($1, $2, $3, 'accepted', 'ride_accepted')`,
+        [rideId, user.sub, updated.rows[0].previous_status],
       );
       await client.query('COMMIT');
       return updated.rows[0];
