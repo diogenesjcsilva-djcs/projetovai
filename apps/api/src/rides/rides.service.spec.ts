@@ -1,0 +1,87 @@
+import { ConflictException } from '@nestjs/common';
+import { Pool } from 'pg';
+import { RidesService } from './rides.service';
+
+describe('RidesService ride lifecycle safeguards', () => {
+  const passenger = { sub: 'passenger-id', role: 'passenger' as const, sid: 'session-id' };
+  const driver = { sub: 'driver-id', role: 'driver' as const, sid: 'session-id' };
+  const ride = {
+    id: 'ride-id', city_id: 'city-id', passenger_user_id: 'passenger-id',
+    driver_user_id: null, status: 'requested', pickup_address: 'Origem',
+    destination_address: 'Destino', estimated_distance_meters: null,
+    estimated_duration_seconds: null, estimated_fare_cents: null, final_fare_cents: null,
+  };
+
+  it('commits ride creation and its audit event in one transaction', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [ride] }) // INSERT ride
+      .mockResolvedValueOnce({ rows: [] }) // INSERT event
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+    const db = {
+      query: jest.fn().mockResolvedValue({ rows: [{
+        id: passenger.sub, role: 'passenger', city_id: 'city-id',
+      }] }),
+      connect: jest.fn().mockResolvedValue(client),
+    } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.create(passenger, {
+      pickup: { latitude: -8.0, longitude: -34.9 },
+      destination: { latitude: -8.1, longitude: -34.8 },
+      pickupAddress: 'Origem válida',
+      destinationAddress: 'Destino válido',
+    }, 'idem-123')).resolves.toEqual(ride);
+
+    expect(client.query.mock.calls.map(call => call[0])).toEqual([
+      'BEGIN', expect.stringContaining('INSERT INTO rides'),
+      expect.stringContaining('INSERT INTO ride_events'), 'COMMIT',
+    ]);
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back ride creation if the audit event cannot be written', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [ride] })
+      .mockRejectedValueOnce(new Error('audit insert failed'))
+      .mockResolvedValueOnce({ rows: [] });
+    const db = {
+      query: jest.fn().mockResolvedValue({ rows: [{
+        id: passenger.sub, role: 'passenger', city_id: 'city-id',
+      }] }),
+      connect: jest.fn().mockResolvedValue(client),
+    } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.create(passenger, {
+      pickup: { latitude: -8.0, longitude: -34.9 },
+      destination: { latitude: -8.1, longitude: -34.8 },
+      pickupAddress: 'Origem válida',
+      destinationAddress: 'Destino válido',
+    }, 'idem-123')).rejects.toThrow('audit insert failed');
+
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.query.mock.calls.map(call => call[0])).not.toContain('COMMIT');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('limits acceptance to rides in the authenticated driver city', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // eligible driver
+      .mockResolvedValueOnce({ rows: [] }) // no ride in driver's city
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.accept(driver, 'ride-id')).rejects.toBeInstanceOf(ConflictException);
+    const acceptSql = client.query.mock.calls[2][0] as string;
+    expect(acceptSql).toContain('city_id = (SELECT city_id FROM users WHERE id = $2)');
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+});
