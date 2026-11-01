@@ -1,14 +1,13 @@
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, UseGuards, Req } from '@nestjs/common';
 import { RidesService } from './rides.service';
 import { CreateRideDto, DriverLocationDto, RideStatusDto } from './rides.dto';
 import { AccessTokenGuard, AuthenticatedRequest } from '../auth/access-token.guard';
-import { Req } from '@nestjs/common';
 import { Request } from 'express';
 
 type RequestWithUser = Request & { user: AuthenticatedRequest['user'] };
 
 @UseGuards(AccessTokenGuard)
-@Controller('/api/v1')
+@Controller()
 export class RidesController {
   constructor(private readonly rides: RidesService) {}
 
@@ -28,7 +27,7 @@ export class RidesController {
   }
 
   @Post('rides/:id/status')
-  updateStatus(@Req() req: RequestWithUser, @Param('id') id: string, @Body() dto: RideStatusDto) {
+  updateStatus(@Req() req: RequestWithUser, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: RideStatusDto) {
     return this.rides.updateStatus(req.user, id, dto);
   }
 
