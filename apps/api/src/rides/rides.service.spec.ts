@@ -12,6 +12,31 @@ describe('RidesService ride lifecycle safeguards', () => {
     estimated_duration_seconds: null, estimated_fare_cents: null, final_fare_cents: null,
   };
 
+  it('calculates straight-line distance on the server and does not invent a fare', async () => {
+    const db = {
+      query: jest.fn()
+        .mockResolvedValueOnce({ rows: [{ id: passenger.sub, role: 'passenger', city_id: 'city-id' }] })
+        .mockResolvedValueOnce({ rows: [{
+          id: 'policy-id', version: 1, base_fare_cents: 500,
+          price_per_km_cents: 200, price_per_minute_cents: 30,
+          minimum_fare_cents: 700, currency: 'BRL',
+        }] }),
+    } as unknown as Pool;
+    const service = new RidesService(db);
+
+    const estimate = await service.estimate(passenger, {
+      pickup: { latitude: -8.0, longitude: -34.9 },
+      destination: { latitude: -8.1, longitude: -34.8 },
+    });
+
+    expect(estimate.distance.method).toBe('haversine_straight_line');
+    expect(estimate.distance.meters).toBeGreaterThan(0);
+    expect(estimate.durationSeconds).toBeNull();
+    expect(estimate.fare).toBeNull();
+    expect(estimate.fareAvailable).toBe(false);
+    expect(estimate.reason).toBe('ROUTE_DURATION_UNAVAILABLE');
+  });
+
   it('commits ride creation and its audit event in one transaction', async () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
