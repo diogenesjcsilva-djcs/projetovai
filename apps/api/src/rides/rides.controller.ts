@@ -23,7 +23,7 @@ export class RidesController {
   }
 
   @Post('rides/:id/accept')
-  accept(@Req() req: RequestWithUser, @Param('id') id: string) {
+  accept(@Req() req: RequestWithUser, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.rides.accept(req.user, id);
   }
 
