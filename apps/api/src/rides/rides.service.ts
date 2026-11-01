@@ -35,8 +35,10 @@ export class RidesService {
     const account = await this.activeUser(user.sub);
     if (!account || account.role !== 'passenger' || !account.city_id) throw new ForbiddenException('Conta indisponível para solicitar corrida');
 
+    const client = await this.db.connect();
     try {
-      const result = await this.db.query<RideRow>(
+      await client.query('BEGIN');
+      const result = await client.query<RideRow>(
         `INSERT INTO rides (
           city_id, passenger_user_id, status, pickup_location, pickup_address,
           destination_location, destination_address, estimated_distance_meters,
@@ -55,13 +57,15 @@ export class RidesService {
       );
       const ride = result.rows[0];
       if (!ride) throw new BadRequestException('Não foi possível criar a corrida');
-      await this.db.query(
+      await client.query(
         `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
          VALUES ($1, $2, NULL, 'requested', 'ride_requested')`,
         [ride.id, account.id],
       );
+      await client.query('COMMIT');
       return ride;
     } catch (error: any) {
+      try { await client.query('ROLLBACK'); } catch { /* transaction may already be closed */ }
       if (error?.code === '23505') {
         const existing = await this.db.query<RideRow>(
           `SELECT id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
@@ -73,6 +77,8 @@ export class RidesService {
         if (existing.rows[0]) return existing.rows[0];
       }
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -103,7 +109,7 @@ export class RidesService {
          JOIN driver_profiles d ON d.user_id = u.id
          JOIN driver_locations l ON l.driver_user_id = u.id
          WHERE u.id = $1 AND u.role = 'driver' AND u.status = 'active' AND u.deleted_at IS NULL
-           AND d.status = 'approved' AND l.is_available = true
+           AND d.city_id = u.city_id AND d.status = 'approved' AND l.is_available = true
            AND l.updated_at > now() - interval '5 minutes'`,
         [user.sub],
       );
@@ -112,7 +118,8 @@ export class RidesService {
       const updated = await client.query<RideRow>(
         `UPDATE rides
          SET driver_user_id = $2, status = 'accepted', accepted_at = now(), updated_at = now()
-         WHERE id = $1 AND status IN ('requested', 'searching') AND driver_user_id IS NULL
+         WHERE id = $1 AND city_id = (SELECT city_id FROM users WHERE id = $2)
+           AND status IN ('requested', 'searching') AND driver_user_id IS NULL
          RETURNING id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
            destination_address, estimated_distance_meters, estimated_duration_seconds,
            estimated_fare_cents, final_fare_cents`,
@@ -211,9 +218,9 @@ export class RidesService {
        VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, $4, COALESCE($5, false), now())
        ON CONFLICT (driver_user_id) DO UPDATE SET
          location = EXCLUDED.location, heading_degrees = EXCLUDED.heading_degrees,
-         is_available = EXCLUDED.is_available, updated_at = now()
+         is_available = COALESCE($5, driver_locations.is_available), updated_at = now()
        RETURNING driver_user_id, heading_degrees, is_available, updated_at`,
-      [account.id, dto.longitude, dto.latitude, dto.headingDegrees ?? null, dto.isAvailable ?? false],
+      [account.id, dto.longitude, dto.latitude, dto.headingDegrees ?? null, dto.isAvailable ?? null],
     );
     return result.rows[0];
   }
