@@ -41,19 +41,17 @@ export class RidesService {
       const result = await client.query<RideRow>(
         `INSERT INTO rides (
           city_id, passenger_user_id, status, pickup_location, pickup_address,
-          destination_location, destination_address, estimated_distance_meters,
-          estimated_duration_seconds, idempotency_key
+          destination_location, destination_address, idempotency_key
         ) VALUES (
           $1, $2, 'requested',
           ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5,
-          ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography, $8, $9, $10, $11
+          ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography, $8, $9
         )
         RETURNING id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
           destination_address, estimated_distance_meters, estimated_duration_seconds,
           estimated_fare_cents, final_fare_cents`,
         [account.city_id, account.id, ...this.point(dto.pickup), dto.pickupAddress,
-          ...this.point(dto.destination), dto.destinationAddress,
-          dto.estimatedDistanceMeters ?? null, dto.estimatedDurationSeconds ?? null, idempotencyKey],
+          ...this.point(dto.destination), dto.destinationAddress, idempotencyKey],
       );
       const ride = result.rows[0];
       if (!ride) throw new BadRequestException('Não foi possível criar a corrida');
