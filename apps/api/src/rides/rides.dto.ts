@@ -18,12 +18,6 @@ export class CreateRideDto {
 
   @IsString() @MinLength(3) @MaxLength(300)
   destinationAddress!: string;
-
-  @IsOptional() @IsInt() @Min(1)
-  estimatedDistanceMeters?: number;
-
-  @IsOptional() @IsInt() @Min(1)
-  estimatedDurationSeconds?: number;
 }
 
 export class RideStatusDto {
