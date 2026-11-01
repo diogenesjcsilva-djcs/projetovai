@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { RidesService } from './rides.service';
 import { CreateRideDto, DriverLocationDto, RideStatusDto } from './rides.dto';
 import { AccessTokenGuard, AuthenticatedRequest } from '../auth/access-token.guard';
@@ -18,7 +18,7 @@ export class RidesController {
   }
 
   @Get('rides/:id')
-  findOne(@Req() req: RequestWithUser, @Param('id') id: string) {
+  findOne(@Req() req: RequestWithUser, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.rides.findOne(req.user, id);
   }
 
