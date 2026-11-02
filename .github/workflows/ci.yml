@@ -54,6 +54,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0001_initial_schema.sql
           psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0002_rides_foundation.sql
           psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0003_city_pricing_policies.sql
+          psql -v ON_ERROR_STOP=1 -f apps/api/database/migrations/0004_city_pricing_policy_events.sql
       - name: Build API
         run: pnpm --filter @transporte/api build
       - name: Run unit and integration tests
