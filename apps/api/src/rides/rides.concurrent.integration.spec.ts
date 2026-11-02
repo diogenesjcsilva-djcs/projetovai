@@ -99,8 +99,10 @@ const integrationEnabled = process.env.RUN_INTEGRATION_TESTS === '1';
     const rejected = results.filter(result => result.status === 'rejected');
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
-    if (rejected[0].status === 'rejected') {
-      expect(rejected[0].reason).toBeInstanceOf(ConflictException);
+    const rejection = rejected[0];
+    expect(rejection).toBeDefined();
+    if (rejection?.status === 'rejected') {
+      expect(rejection.reason).toBeInstanceOf(ConflictException);
     }
 
     const storedRide = await pool.query(
