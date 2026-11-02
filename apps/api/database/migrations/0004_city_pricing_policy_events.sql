@@ -19,6 +19,17 @@ CREATE INDEX city_pricing_policy_events_city_created_idx
 CREATE INDEX city_pricing_policy_events_policy_created_idx
   ON city_pricing_policy_events (policy_id, created_at DESC);
 
+CREATE FUNCTION reject_city_pricing_policy_event_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $
+BEGIN
+  RAISE EXCEPTION 'city pricing policy events are immutable' USING ERRCODE = '55000';
+END;
+$;
+
+CREATE TRIGGER city_pricing_policy_events_immutable
+  BEFORE UPDATE OR DELETE ON city_pricing_policy_events
+  FOR EACH ROW EXECUTE FUNCTION reject_city_pricing_policy_event_mutation();
+
 COMMENT ON TABLE city_pricing_policy_events IS
   'Append-only audit trail for administrative city pricing-policy lifecycle actions.';
 
