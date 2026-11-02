@@ -119,9 +119,8 @@ export class PricingPoliciesService {
         await client.query('COMMIT');
         return target;
       }
-      if (new Date(target.effective_from).getTime() > Date.now()
-          || (target.effective_until && new Date(target.effective_until).getTime() <= Date.now())) {
-        throw new ConflictException('A versão tarifária está fora da vigência');
+      if (new Date(target.effective_from).getTime() > Date.now() || target.effective_until) {
+        throw new ConflictException('Versão tarifária encerrada ou fora da vigência; crie uma nova versão');
       }
 
       const current = await client.query(
