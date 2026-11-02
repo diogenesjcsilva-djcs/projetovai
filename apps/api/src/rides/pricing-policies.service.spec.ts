@@ -100,4 +100,28 @@ describe('PricingPoliciesService administrative lifecycle', () => {
     expect(client.query.mock.calls.map(call => call[0])).toContain('COMMIT');
     expect(client.release).toHaveBeenCalledTimes(1);
   });
+  it('does not reactivate a closed historical version', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 'city-id' }] }) // lock city
+      .mockResolvedValueOnce({ rows: [{
+        id: 'closed-policy', city_id: 'city-id', version: 1, is_active: false,
+        effective_from: new Date(Date.now() - 120_000),
+        effective_until: new Date(Date.now() - 60_000),
+      }] })
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+    const db = {
+      query: jest.fn().mockResolvedValue({ rows: [{ id: admin.sub, role: 'admin' }] }),
+      connect: jest.fn().mockResolvedValue(client),
+    } as unknown as Pool;
+    const service = new PricingPoliciesService(db);
+
+    await expect(service.activateVersion(admin, 'city-id', 'closed-policy'))
+      .rejects.toThrow('crie uma nova versão');
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.query.mock.calls.map(call => call[0])).not.toContain('COMMIT');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
 });
