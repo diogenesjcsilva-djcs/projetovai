@@ -215,4 +215,53 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
     expect(client.release).toHaveBeenCalledTimes(1);
   });
+
+  it('restores driver availability when an assigned ride is completed', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub, role: 'driver', city_id: 'city-id' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'in_progress' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'completed' }] })
+      .mockResolvedValueOnce({ rows: [] }) // audit event
+      .mockResolvedValueOnce({ rows: [] }) // restore driver availability
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await service.updateStatus(driver, 'ride-id', { status: 'completed' });
+
+    const availabilityUpdate = client.query.mock.calls.find(call =>
+      String(call[0]).includes('UPDATE driver_locations'),
+    );
+    expect(availabilityUpdate).toBeDefined();
+    expect(availabilityUpdate?.[0]).toContain('is_available = true');
+    expect(availabilityUpdate?.[1]).toEqual([driver.sub]);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('COMMIT');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores driver availability when a passenger cancels an assigned ride', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: passenger.sub, role: 'passenger', city_id: 'city-id' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'accepted' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'cancelled' }] })
+      .mockResolvedValueOnce({ rows: [] }) // audit event
+      .mockResolvedValueOnce({ rows: [] }) // restore driver availability
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await service.updateStatus(passenger, 'ride-id', { status: 'cancelled' });
+
+    const availabilityUpdate = client.query.mock.calls.find(call =>
+      String(call[0]).includes('UPDATE driver_locations'),
+    );
+    expect(availabilityUpdate).toBeDefined();
+    expect(availabilityUpdate?.[1]).toEqual([driver.sub]);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('COMMIT');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
 });
