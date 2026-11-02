@@ -112,11 +112,29 @@ const integrationEnabled = process.env.RUN_INTEGRATION_TESTS === '1';
     expect(storedRide.rows[0].status).toBe('accepted');
     expect([driverA, driverB]).toContain(storedRide.rows[0].driver_user_id);
 
+    const acceptedDriverLocation = await pool.query(
+      `SELECT is_available FROM driver_locations WHERE driver_user_id = $1`,
+      [storedRide.rows[0].driver_user_id],
+    );
+    expect(acceptedDriverLocation.rows[0].is_available).toBe(false);
+
     const acceptedEvents = await pool.query(
       `SELECT count(*)::integer AS count FROM ride_events
        WHERE ride_id = $1 AND event_type = 'ride_accepted'`,
       [rideId],
     );
     expect(acceptedEvents.rows[0].count).toBe(1);
+
+    const assignedDriver = storedRide.rows[0].driver_user_id;
+    const driverUser = { sub: assignedDriver, role: 'driver' as const, sid: 'integration-completion' };
+    await service.updateStatus(driverUser, rideId, { status: 'driver_arriving' });
+    await service.updateStatus(driverUser, rideId, { status: 'in_progress' });
+    await service.updateStatus(driverUser, rideId, { status: 'completed' });
+
+    const completedDriverLocation = await pool.query(
+      `SELECT is_available FROM driver_locations WHERE driver_user_id = $1`,
+      [assignedDriver],
+    );
+    expect(completedDriverLocation.rows[0].is_available).toBe(true);
   });
 });

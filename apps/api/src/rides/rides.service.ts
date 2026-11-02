@@ -211,6 +211,7 @@ export class RidesService {
           [account.id, idempotencyKey],
         );
         if (existing.rows[0]) return existing.rows[0];
+        throw new ConflictException('Passageiro já possui uma solicitação de corrida ativa ou a chave de idempotência está em conflito');
       }
       throw error;
     } finally {
@@ -239,6 +240,26 @@ export class RidesService {
     const client = await this.db.connect();
     try {
       await client.query('BEGIN');
+      // Serialize all accept attempts by this driver, including attempts on different rides.
+      const lockedDriver = await client.query(
+        `SELECT id FROM users
+         WHERE id = $1 AND role = 'driver' AND status = 'active' AND deleted_at IS NULL
+         FOR UPDATE`,
+        [user.sub],
+      );
+      if (!lockedDriver.rows[0]) throw new ForbiddenException('Motorista indisponível para aceitar corridas');
+
+      const activeRide = await client.query(
+        `SELECT id FROM rides
+         WHERE driver_user_id = $1
+           AND status IN ('accepted', 'driver_arriving', 'in_progress')
+         LIMIT 1`,
+        [user.sub],
+      );
+      if (activeRide.rows[0]) {
+        throw new ConflictException('Motorista já possui uma corrida em andamento');
+      }
+
       const eligible = await client.query(
         `SELECT u.id
          FROM users u
@@ -295,6 +316,12 @@ export class RidesService {
       );
       if (!updated.rows[0]) throw new ConflictException('Corrida não está disponível');
       await client.query(
+        `UPDATE driver_locations
+         SET is_available = false, updated_at = now()
+         WHERE driver_user_id = $1`,
+        [user.sub],
+      );
+      await client.query(
         `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
          VALUES ($1, $2, $3, 'accepted', 'ride_accepted')`,
         [rideId, user.sub, updated.rows[0].previous_status],
@@ -348,20 +375,30 @@ export class RidesService {
 
     const result = await client.query<RideRow>(
       `UPDATE rides SET status = $2,
-         started_at = CASE WHEN $2 = 'in_progress' THEN now() ELSE started_at END,
-         completed_at = CASE WHEN $2 = 'completed' THEN now() ELSE completed_at END,
-         cancelled_at = CASE WHEN $2 = 'cancelled' THEN now() ELSE cancelled_at END,
+         started_at = CASE WHEN $3 = 'in_progress' THEN now() ELSE started_at END,
+         completed_at = CASE WHEN $4 = 'completed' THEN now() ELSE completed_at END,
+         cancelled_at = CASE WHEN $5 = 'cancelled' THEN now() ELSE cancelled_at END,
          updated_at = now()
        WHERE id = $1 RETURNING id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
          destination_address, estimated_distance_meters, estimated_duration_seconds,
          estimated_fare_cents, final_fare_cents`,
-      [rideId, dto.status],
+      [rideId, dto.status, dto.status, dto.status, dto.status],
     );
     await client.query(
       `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
        VALUES ($1, $2, $3, $4, 'status_changed')`,
       [rideId, account.id, ride.status, dto.status],
     );
+    // A terminal ride releases its assigned driver back into dispatch.
+    // Keep this in the same transaction as the status change and audit event.
+    if ((dto.status === 'completed' || dto.status === 'cancelled') && ride.driver_user_id) {
+      await client.query(
+        `UPDATE driver_locations
+         SET is_available = true, updated_at = now()
+         WHERE driver_user_id = $1`,
+        [ride.driver_user_id],
+      );
+    }
     await client.query('COMMIT');
     return result.rows[0];
     } catch (error) {

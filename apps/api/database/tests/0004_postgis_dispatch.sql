@@ -1,11 +1,12 @@
 -- Integration smoke test for the PostGIS dispatch search and progressive radius.
--- Runs only in the ephemeral CI database after migrations 0001-0004.
+-- Runs only in the ephemeral CI database after migrations 0001-0005.
 BEGIN;
 
 DO $$
 DECLARE
   v_city_id uuid;
   v_passenger_id uuid;
+  v_second_passenger_id uuid;
   v_driver_id uuid;
   v_driver_point geography;
   v_near_ride_id uuid;
@@ -20,6 +21,10 @@ BEGIN
   INSERT INTO users (phone_e164, role, status, city_id)
   VALUES ('+5511999900001', 'passenger', 'active', v_city_id)
   RETURNING id INTO v_passenger_id;
+
+  INSERT INTO users (phone_e164, role, status, city_id)
+  VALUES ('+5511999900003', 'passenger', 'active', v_city_id)
+  RETURNING id INTO v_second_passenger_id;
 
   INSERT INTO users (phone_e164, role, status, city_id)
   VALUES ('+5511999900002', 'driver', 'active', v_city_id)
@@ -56,7 +61,7 @@ BEGIN
     city_id, passenger_user_id, status, pickup_location, pickup_address,
     destination_location, destination_address, idempotency_key
   ) VALUES (
-    v_city_id, v_passenger_id, 'searching',
+    v_city_id, v_second_passenger_id, 'searching',
     ST_Project(v_driver_point, 2500, 0), 'Progressive pickup',
     ST_Project(v_driver_point, 3500, 1), 'Destination', 'dispatch-progressive'
   ) RETURNING id INTO v_progressive_ride_id;

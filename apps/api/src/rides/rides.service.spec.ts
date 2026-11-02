@@ -101,6 +101,33 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
+
+  it('returns a conflict when a passenger requests a second active ride with a new idempotency key', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    const uniqueViolation = Object.assign(new Error('unique active ride'), { code: '23505' });
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 'policy-id', version: 1 }] })
+      .mockRejectedValueOnce(uniqueViolation) // active passenger ride unique index
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+    const db = {
+      query: jest.fn()
+        .mockResolvedValueOnce({ rows: [{ id: passenger.sub, role: 'passenger', city_id: 'city-id' }] })
+        .mockResolvedValueOnce({ rows: [] }), // no ride with this idempotency key
+      connect: jest.fn().mockResolvedValue(client),
+    } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.create(passenger, {
+      pickup: { latitude: -8.0, longitude: -34.9 },
+      destination: { latitude: -8.1, longitude: -34.8 },
+      pickupAddress: 'Origem válida',
+      destinationAddress: 'Destino válido',
+    }, 'new-idempotency-key')).rejects.toBeInstanceOf(ConflictException);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
   it('does not create a ride when the city has no active dispatch policy', async () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
@@ -148,21 +175,93 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(query.mock.calls[1][0]).toContain('search_wave_timeout_seconds');
   });
 
-  it('limits acceptance to rides in the authenticated driver city', async () => {
+
+  it('rejects acceptance when the driver already has an active ride', async () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
       .mockResolvedValueOnce({ rows: [] }) // BEGIN
-      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // eligible driver
-      .mockResolvedValueOnce({ rows: [] }) // no ride in driver's city
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // lock driver row
+      .mockResolvedValueOnce({ rows: [{ id: 'another-active-ride' }] }) // active ride found
       .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
     const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
     const service = new RidesService(db);
 
     await expect(service.accept(driver, 'ride-id')).rejects.toBeInstanceOf(ConflictException);
-    const acceptSql = client.query.mock.calls[2][0] as string;
+    expect(client.query.mock.calls[1][0]).toContain('FOR UPDATE');
+    expect(client.query.mock.calls[2][0]).toContain('driver_user_id');
+    expect(client.query.mock.calls.some(call => String(call[0]).includes('UPDATE rides'))).toBe(false);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('limits acceptance to rides in the authenticated driver city', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // lock driver row
+      .mockResolvedValueOnce({ rows: [] }) // no active ride assigned to driver
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // eligible driver
+      .mockResolvedValueOnce({ rows: [] }) // no ride in driver's city/radius
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.accept(driver, 'ride-id')).rejects.toBeInstanceOf(ConflictException);
+    const acceptSql = client.query.mock.calls[4][0] as string;
     expect(acceptSql).toContain('ST_DWithin');
     expect(acceptSql).toContain('p.search_wave_timeout_seconds');
+    expect(client.query.mock.calls[1][0]).toContain('FOR UPDATE');
+    expect(client.query.mock.calls[2][0]).toContain("status IN ('accepted', 'driver_arriving', 'in_progress')");
     expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores driver availability when an assigned ride is completed', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub, role: 'driver', city_id: 'city-id' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'in_progress' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'completed' }] })
+      .mockResolvedValueOnce({ rows: [] }) // audit event
+      .mockResolvedValueOnce({ rows: [] }) // restore driver availability
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await service.updateStatus(driver, 'ride-id', { status: 'completed' });
+
+    const availabilityUpdate = client.query.mock.calls.find(call =>
+      String(call[0]).includes('UPDATE driver_locations'),
+    );
+    expect(availabilityUpdate).toBeDefined();
+    expect(availabilityUpdate?.[0]).toContain('is_available = true');
+    expect(availabilityUpdate?.[1]).toEqual([driver.sub]);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('COMMIT');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores driver availability when a passenger cancels an assigned ride', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: passenger.sub, role: 'passenger', city_id: 'city-id' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'accepted' }] })
+      .mockResolvedValueOnce({ rows: [{ ...ride, driver_user_id: driver.sub, status: 'cancelled' }] })
+      .mockResolvedValueOnce({ rows: [] }) // audit event
+      .mockResolvedValueOnce({ rows: [] }) // restore driver availability
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await service.updateStatus(passenger, 'ride-id', { status: 'cancelled' });
+
+    const availabilityUpdate = client.query.mock.calls.find(call =>
+      String(call[0]).includes('UPDATE driver_locations'),
+    );
+    expect(availabilityUpdate).toBeDefined();
+    expect(availabilityUpdate?.[1]).toEqual([driver.sub]);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('COMMIT');
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 });
