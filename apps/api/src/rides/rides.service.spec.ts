@@ -148,20 +148,43 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(query.mock.calls[1][0]).toContain('search_wave_timeout_seconds');
   });
 
-  it('limits acceptance to rides in the authenticated driver city', async () => {
+
+  it('rejects acceptance when the driver already has an active ride', async () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
       .mockResolvedValueOnce({ rows: [] }) // BEGIN
-      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // eligible driver
-      .mockResolvedValueOnce({ rows: [] }) // no ride in driver's city
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // lock driver row
+      .mockResolvedValueOnce({ rows: [{ id: 'another-active-ride' }] }) // active ride found
       .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
     const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
     const service = new RidesService(db);
 
     await expect(service.accept(driver, 'ride-id')).rejects.toBeInstanceOf(ConflictException);
-    const acceptSql = client.query.mock.calls[2][0] as string;
+    expect(client.query.mock.calls[1][0]).toContain('FOR UPDATE');
+    expect(client.query.mock.calls[2][0]).toContain('driver_user_id');
+    expect(client.query.mock.calls.some(call => String(call[0]).includes('UPDATE rides'))).toBe(false);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('limits acceptance to rides in the authenticated driver city', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // lock driver row
+      .mockResolvedValueOnce({ rows: [] }) // no active ride assigned to driver
+      .mockResolvedValueOnce({ rows: [{ id: driver.sub }] }) // eligible driver
+      .mockResolvedValueOnce({ rows: [] }) // no ride in driver's city/radius
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.accept(driver, 'ride-id')).rejects.toBeInstanceOf(ConflictException);
+    const acceptSql = client.query.mock.calls[4][0] as string;
     expect(acceptSql).toContain('ST_DWithin');
     expect(acceptSql).toContain('p.search_wave_timeout_seconds');
+    expect(client.query.mock.calls[1][0]).toContain('FOR UPDATE');
+    expect(client.query.mock.calls[2][0]).toContain("status IN ('accepted', 'driver_arriving', 'in_progress')");
     expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
     expect(client.release).toHaveBeenCalledTimes(1);
   });
