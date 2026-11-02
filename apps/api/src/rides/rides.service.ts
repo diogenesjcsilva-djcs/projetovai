@@ -211,6 +211,7 @@ export class RidesService {
           [account.id, idempotencyKey],
         );
         if (existing.rows[0]) return existing.rows[0];
+        throw new ConflictException('Passageiro já possui uma solicitação de corrida ativa ou a chave de idempotência está em conflito');
       }
       throw error;
     } finally {
