@@ -112,6 +112,12 @@ const integrationEnabled = process.env.RUN_INTEGRATION_TESTS === '1';
     expect(storedRide.rows[0].status).toBe('accepted');
     expect([driverA, driverB]).toContain(storedRide.rows[0].driver_user_id);
 
+    const acceptedDriverLocation = await pool.query(
+      `SELECT is_available FROM driver_locations WHERE driver_user_id = $1`,
+      [storedRide.rows[0].driver_user_id],
+    );
+    expect(acceptedDriverLocation.rows[0].is_available).toBe(false);
+
     const acceptedEvents = await pool.query(
       `SELECT count(*)::integer AS count FROM ride_events
        WHERE ride_id = $1 AND event_type = 'ride_accepted'`,
