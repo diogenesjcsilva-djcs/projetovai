@@ -375,14 +375,14 @@ export class RidesService {
 
     const result = await client.query<RideRow>(
       `UPDATE rides SET status = $2,
-         started_at = CASE WHEN $2 = 'in_progress' THEN now() ELSE started_at END,
-         completed_at = CASE WHEN $2 = 'completed' THEN now() ELSE completed_at END,
-         cancelled_at = CASE WHEN $2 = 'cancelled' THEN now() ELSE cancelled_at END,
+         started_at = CASE WHEN $3 = 'in_progress' THEN now() ELSE started_at END,
+         completed_at = CASE WHEN $4 = 'completed' THEN now() ELSE completed_at END,
+         cancelled_at = CASE WHEN $5 = 'cancelled' THEN now() ELSE cancelled_at END,
          updated_at = now()
        WHERE id = $1 RETURNING id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
          destination_address, estimated_distance_meters, estimated_duration_seconds,
          estimated_fare_cents, final_fare_cents`,
-      [rideId, dto.status],
+      [rideId, dto.status, dto.status, dto.status, dto.status],
     );
     await client.query(
       `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
