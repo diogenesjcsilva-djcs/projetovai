@@ -128,14 +128,13 @@ describe('RidesService ride lifecycle safeguards', () => {
   });
 
   it('returns only nearby searching rides and orders candidates by PostGIS distance', async () => {
-    const db = {
-      query: jest.fn()
-        .mockResolvedValueOnce({ rows: [{ city_id: 'city-id' }] })
-        .mockResolvedValueOnce({ rows: [{
-          id: 'ride-near', pickup_distance_meters: 650,
-          requested_at: new Date(), current_search_radius_meters: 3000,
-        }] }),
-    } as unknown as Pool;
+    const query = jest.fn()
+      .mockResolvedValueOnce({ rows: [{ city_id: 'city-id' }] })
+      .mockResolvedValueOnce({ rows: [{
+        id: 'ride-near', pickup_distance_meters: 650,
+        requested_at: new Date(), current_search_radius_meters: 3000,
+      }] });
+    const db = { query } as unknown as Pool;
     const service = new RidesService(db);
 
     const result = await service.availableRides(driver);
@@ -143,10 +142,10 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(result.rides[0].id).toBe('ride-near');
     expect(result.rides[0]).not.toHaveProperty('pickup_location');
     expect(result.rides[0]).not.toHaveProperty('driver_location');
-    expect(db.query.mock.calls[1][0]).toContain('ST_DWithin');
-    expect(db.query.mock.calls[1][0]).toContain('ST_Distance');
-    expect(db.query.mock.calls[1][0]).toContain("r.status = 'searching'");
-    expect(db.query.mock.calls[1][0]).toContain('search_wave_timeout_seconds');
+    expect(query.mock.calls[1][0]).toContain('ST_DWithin');
+    expect(query.mock.calls[1][0]).toContain('ST_Distance');
+    expect(query.mock.calls[1][0]).toContain("r.status = 'searching'");
+    expect(query.mock.calls[1][0]).toContain('search_wave_timeout_seconds');
   });
 
   it('limits acceptance to rides in the authenticated driver city', async () => {
