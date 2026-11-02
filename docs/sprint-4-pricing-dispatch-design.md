@@ -83,3 +83,4 @@ A política comercial ainda precisa ser aprovada: valor base, preço por km, pre
 - O raio/dispatch depende de política ativa; a cidade piloto ainda não tem valores comerciais aprovados nem política ativa cadastrada.
 - Não há cálculo de tarifa final nem duração de rota viária.
 - Migration 0004 está versionada e deve ser validada no CI efêmero; não aplicar no Neon nem fazer deploy sem autorização explícita.
+- O DTO de transição de status não aceita mais `finalFareCents`; a tarifa final permanece sem autoridade do app até existir cálculo/ajuste autorizado no servidor. O `ValidationPipe` global rejeita propriedades não permitidas.
