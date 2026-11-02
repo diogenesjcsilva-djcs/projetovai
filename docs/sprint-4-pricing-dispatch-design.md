@@ -84,3 +84,4 @@ A política comercial ainda precisa ser aprovada: valor base, preço por km, pre
 - Não há cálculo de tarifa final nem duração de rota viária.
 - Migration 0004 está versionada e deve ser validada no CI efêmero; não aplicar no Neon nem fazer deploy sem autorização explícita.
 - O DTO de transição de status não aceita mais `finalFareCents`; a tarifa final permanece sem autoridade do app até existir cálculo/ajuste autorizado no servidor. O `ValidationPipe` global rejeita propriedades não permitidas.
+- CI agora executa `apps/api/database/tests/0004_postgis_dispatch.sql` após as migrations, cobrindo a onda inicial, expansão progressiva do raio e exclusão de motorista com localização expirada em PostGIS real (banco efêmero).
