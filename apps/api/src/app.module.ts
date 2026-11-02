@@ -4,6 +4,7 @@ import { HealthModule } from './health/health.module';
 import { InfrastructureModule } from './infrastructure/infrastructure.module';
 import { AuthModule } from './auth/auth.module';
 import { RidesModule } from './rides/rides.module';
+import { PricingPoliciesModule } from './rides/pricing-policies.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { RidesModule } from './rides/rides.module';
     InfrastructureModule,
     AuthModule,
     RidesModule,
+    PricingPoliciesModule,
     HealthModule,
   ],
 })
