@@ -345,19 +345,17 @@ export class RidesService {
     };
     if (!transitions[ride.status]?.includes(dto.status)) throw new ConflictException('Transição de status inválida');
     if (dto.status === 'completed' && account.role !== 'driver') throw new ForbiddenException('Apenas o motorista conclui a corrida');
-    if (dto.finalFareCents !== undefined && dto.status !== 'completed') throw new BadRequestException('Tarifa final só pode ser definida na conclusão');
 
     const result = await client.query<RideRow>(
       `UPDATE rides SET status = $2,
          started_at = CASE WHEN $2 = 'in_progress' THEN now() ELSE started_at END,
          completed_at = CASE WHEN $2 = 'completed' THEN now() ELSE completed_at END,
          cancelled_at = CASE WHEN $2 = 'cancelled' THEN now() ELSE cancelled_at END,
-         final_fare_cents = CASE WHEN $2 = 'completed' THEN COALESCE($3, final_fare_cents) ELSE final_fare_cents END,
          updated_at = now()
        WHERE id = $1 RETURNING id, city_id, passenger_user_id, driver_user_id, status, pickup_address,
          destination_address, estimated_distance_meters, estimated_duration_seconds,
          estimated_fare_cents, final_fare_cents`,
-      [rideId, dto.status, dto.finalFareCents ?? null],
+      [rideId, dto.status],
     );
     await client.query(
       `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
