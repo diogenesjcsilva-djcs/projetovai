@@ -73,6 +73,79 @@ export class RidesService {
     };
   }
 
+  async availableRides(user: AuthenticatedRequest['user']) {
+    if (user.role !== 'driver') throw new ForbiddenException('Apenas motoristas podem consultar corridas disponíveis');
+
+    const eligible = await this.db.query(
+      `SELECT u.city_id
+       FROM users u
+       JOIN driver_profiles d ON d.user_id = u.id
+       JOIN driver_locations l ON l.driver_user_id = u.id
+       JOIN city_pricing_policies p ON p.city_id = u.city_id
+       WHERE u.id = $1 AND u.role = 'driver' AND u.status = 'active' AND u.deleted_at IS NULL
+         AND d.city_id = u.city_id AND d.status = 'approved'
+         AND l.is_available = true
+         AND l.updated_at > now() - make_interval(secs => p.driver_location_max_age_seconds)
+         AND p.is_active = true AND p.effective_from <= now()
+         AND (p.effective_until IS NULL OR p.effective_until > now())
+       ORDER BY p.version DESC LIMIT 1`,
+      [user.sub],
+    );
+    if (!eligible.rows[0]) {
+      throw new ForbiddenException('Motorista sem perfil aprovado, localização recente ou política de despacho ativa');
+    }
+
+    const result = await this.db.query(
+      `WITH driver_context AS (
+         SELECT u.city_id, l.location,
+           p.initial_search_radius_meters, p.max_search_radius_meters,
+           p.search_wave_timeout_seconds
+         FROM users u
+         JOIN driver_profiles d ON d.user_id = u.id
+         JOIN driver_locations l ON l.driver_user_id = u.id
+         JOIN city_pricing_policies p ON p.city_id = u.city_id
+         WHERE u.id = $1 AND u.role = 'driver' AND u.status = 'active'
+           AND u.deleted_at IS NULL AND d.city_id = u.city_id AND d.status = 'approved'
+           AND l.is_available = true
+           AND l.updated_at > now() - make_interval(secs => p.driver_location_max_age_seconds)
+           AND p.is_active = true AND p.effective_from <= now()
+           AND (p.effective_until IS NULL OR p.effective_until > now())
+         ORDER BY p.version DESC LIMIT 1
+       )
+       SELECT r.id,
+         ROUND(ST_Distance(r.pickup_location, dc.location))::integer AS pickup_distance_meters,
+         r.requested_at,
+         LEAST(
+           dc.max_search_radius_meters::numeric,
+           dc.initial_search_radius_meters::numeric
+             * (1 + FLOOR(EXTRACT(EPOCH FROM (now() - r.requested_at))
+               / dc.search_wave_timeout_seconds))
+         )::integer AS current_search_radius_meters
+       FROM rides r
+       CROSS JOIN driver_context dc
+       WHERE r.city_id = dc.city_id
+         AND r.status = 'searching' AND r.driver_user_id IS NULL
+         AND ST_DWithin(
+           r.pickup_location, dc.location,
+           LEAST(
+             dc.max_search_radius_meters::double precision,
+             dc.initial_search_radius_meters::double precision
+               * (1 + FLOOR(EXTRACT(EPOCH FROM (now() - r.requested_at))
+                 / dc.search_wave_timeout_seconds))
+           )
+         )
+       ORDER BY ST_Distance(r.pickup_location, dc.location) ASC, r.requested_at ASC
+       LIMIT 20`,
+      [user.sub],
+    );
+
+    return {
+      rides: result.rows,
+      polling: true,
+      message: 'A busca amplia o raio automaticamente a cada intervalo configurado; a localização exata de outros motoristas não é exposta.',
+    };
+  }
+
   async create(user: AuthenticatedRequest['user'], dto: CreateRideDto, idempotencyKey: string) {
     if (user.role !== 'passenger') throw new ForbiddenException('Apenas passageiros podem solicitar corridas');
     if (!idempotencyKey || idempotencyKey.length > 128) throw new BadRequestException('Idempotency-Key inválida');
@@ -85,12 +158,23 @@ export class RidesService {
     const client = await this.db.connect();
     try {
       await client.query('BEGIN');
+      const policy = await client.query(
+        `SELECT id, version FROM city_pricing_policies
+         WHERE city_id = $1 AND is_active = true
+           AND effective_from <= now()
+           AND (effective_until IS NULL OR effective_until > now())
+         ORDER BY version DESC LIMIT 1 FOR SHARE`,
+        [account.city_id],
+      );
+      if (!policy.rows[0]) {
+        throw new ServiceUnavailableException('Política de despacho indisponível para esta cidade');
+      }
       const result = await client.query<RideRow>(
         `INSERT INTO rides (
           city_id, passenger_user_id, status, pickup_location, pickup_address,
           destination_location, destination_address, idempotency_key
         ) VALUES (
-          $1, $2, 'requested',
+          $1, $2, 'searching',
           ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5,
           ST_SetSRID(ST_MakePoint($6, $7), 4326)::geography, $8, $9
         )
@@ -106,6 +190,13 @@ export class RidesService {
         `INSERT INTO ride_events (ride_id, actor_user_id, previous_status, new_status, event_type)
          VALUES ($1, $2, NULL, 'requested', 'ride_requested')`,
         [ride.id, account.id],
+      );
+      await client.query(
+        `INSERT INTO ride_events
+          (ride_id, actor_user_id, previous_status, new_status, event_type, metadata)
+         VALUES ($1, $2, 'requested', 'searching', 'ride_search_started',
+           jsonb_build_object('pricing_policy_id', $3, 'pricing_policy_version', $4))`,
+        [ride.id, account.id, policy.rows[0].id, policy.rows[0].version],
       );
       await client.query('COMMIT');
       return ride;
@@ -153,20 +244,42 @@ export class RidesService {
          FROM users u
          JOIN driver_profiles d ON d.user_id = u.id
          JOIN driver_locations l ON l.driver_user_id = u.id
+         JOIN city_pricing_policies p ON p.city_id = u.city_id
          WHERE u.id = $1 AND u.role = 'driver' AND u.status = 'active' AND u.deleted_at IS NULL
            AND d.city_id = u.city_id AND d.status = 'approved' AND l.is_available = true
-           AND l.updated_at > now() - interval '5 minutes'`,
+           AND l.updated_at > now() - make_interval(secs => p.driver_location_max_age_seconds)
+           AND p.is_active = true AND p.effective_from <= now()
+           AND (p.effective_until IS NULL OR p.effective_until > now())`,
         [user.sub],
       );
       if (!eligible.rows[0]) throw new ForbiddenException('Motorista indisponível para aceitar corridas');
 
       const updated = await client.query<RideRow & { previous_status: string }>(
         `WITH candidate AS (
-           SELECT id, status AS previous_status
-           FROM rides
-           WHERE id = $1 AND city_id = (SELECT city_id FROM users WHERE id = $2)
-             AND status IN ('requested', 'searching') AND driver_user_id IS NULL
-           FOR UPDATE
+           SELECT r.id, r.status AS previous_status
+           FROM rides r
+           JOIN users u ON u.id = $2
+           JOIN driver_profiles d ON d.user_id = u.id
+           JOIN driver_locations l ON l.driver_user_id = u.id
+           JOIN city_pricing_policies p ON p.city_id = r.city_id
+           WHERE r.id = $1 AND r.city_id = u.city_id
+             AND u.role = 'driver' AND u.status = 'active' AND u.deleted_at IS NULL
+             AND d.city_id = u.city_id AND d.status = 'approved'
+             AND l.is_available = true
+             AND l.updated_at > now() - make_interval(secs => p.driver_location_max_age_seconds)
+             AND p.is_active = true AND p.effective_from <= now()
+             AND (p.effective_until IS NULL OR p.effective_until > now())
+             AND r.status = 'searching' AND r.driver_user_id IS NULL
+             AND ST_DWithin(
+               r.pickup_location, l.location,
+               LEAST(
+                 p.max_search_radius_meters::double precision,
+                 p.initial_search_radius_meters::double precision
+                   * (1 + FLOOR(EXTRACT(EPOCH FROM (now() - r.requested_at))
+                     / p.search_wave_timeout_seconds))
+               )
+             )
+           FOR UPDATE OF r
          ), changed AS (
            UPDATE rides r
            SET driver_user_id = $2, status = 'accepted', accepted_at = now(), updated_at = now()
