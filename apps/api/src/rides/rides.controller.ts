@@ -26,6 +26,11 @@ export class RidesController {
     return this.rides.findOne(req.user, id);
   }
 
+  @Get('drivers/me/available-rides')
+  availableRides(@Req() req: RequestWithUser) {
+    return this.rides.availableRides(req.user);
+  }
+
   @Post('rides/:id/accept')
   accept(@Req() req: RequestWithUser, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.rides.accept(req.user, id);
