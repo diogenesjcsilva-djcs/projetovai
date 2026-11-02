@@ -7,7 +7,7 @@ describe('RidesService ride lifecycle safeguards', () => {
   const driver = { sub: 'driver-id', role: 'driver' as const, sid: 'session-id' };
   const ride = {
     id: 'ride-id', city_id: 'city-id', passenger_user_id: 'passenger-id',
-    driver_user_id: null, status: 'requested', pickup_address: 'Origem',
+    driver_user_id: null, status: 'searching', pickup_address: 'Origem',
     destination_address: 'Destino', estimated_distance_meters: null,
     estimated_duration_seconds: null, estimated_fare_cents: null, final_fare_cents: null,
   };
@@ -41,8 +41,10 @@ describe('RidesService ride lifecycle safeguards', () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
       .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 'policy-id', version: 1 }] }) // active dispatch policy
       .mockResolvedValueOnce({ rows: [ride] }) // INSERT ride
-      .mockResolvedValueOnce({ rows: [] }) // INSERT event
+      .mockResolvedValueOnce({ rows: [] }) // requested event
+      .mockResolvedValueOnce({ rows: [] }) // search started event
       .mockResolvedValueOnce({ rows: [] }); // COMMIT
     const db = {
       query: jest.fn().mockResolvedValue({ rows: [{
@@ -60,17 +62,23 @@ describe('RidesService ride lifecycle safeguards', () => {
     }, 'idem-123')).resolves.toEqual(ride);
 
     expect(client.query.mock.calls.map(call => call[0])).toEqual([
-      'BEGIN', expect.stringContaining('INSERT INTO rides'),
+      'BEGIN', expect.stringContaining('city_pricing_policies'),
+      expect.stringContaining('INSERT INTO rides'),
+      expect.stringContaining('INSERT INTO ride_events'),
       expect.stringContaining('INSERT INTO ride_events'), 'COMMIT',
     ]);
+    expect(client.query.mock.calls[2][0]).toContain("'searching'");
+    expect(client.query.mock.calls[4][0]).toContain("'ride_search_started'");
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
   it('rolls back ride creation if the audit event cannot be written', async () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
-      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 'policy-id', version: 1 }] })
       .mockResolvedValueOnce({ rows: [ride] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockRejectedValueOnce(new Error('audit insert failed'))
       .mockResolvedValueOnce({ rows: [] });
     const db = {
@@ -93,6 +101,28 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
+  it('returns only nearby searching rides and orders candidates by PostGIS distance', async () => {
+    const db = {
+      query: jest.fn()
+        .mockResolvedValueOnce({ rows: [{ city_id: 'city-id' }] })
+        .mockResolvedValueOnce({ rows: [{
+          id: 'ride-near', pickup_distance_meters: 650,
+          requested_at: new Date(), current_search_radius_meters: 3000,
+        }] }),
+    } as unknown as Pool;
+    const service = new RidesService(db);
+
+    const result = await service.availableRides(driver);
+    expect(result.rides).toHaveLength(1);
+    expect(result.rides[0].id).toBe('ride-near');
+    expect(result.rides[0]).not.toHaveProperty('pickup_location');
+    expect(result.rides[0]).not.toHaveProperty('driver_location');
+    expect(db.query.mock.calls[1][0]).toContain('ST_DWithin');
+    expect(db.query.mock.calls[1][0]).toContain('ST_Distance');
+    expect(db.query.mock.calls[1][0]).toContain("r.status = 'searching'");
+    expect(db.query.mock.calls[1][0]).toContain('search_wave_timeout_seconds');
+  });
+
   it('limits acceptance to rides in the authenticated driver city', async () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
@@ -105,7 +135,8 @@ describe('RidesService ride lifecycle safeguards', () => {
 
     await expect(service.accept(driver, 'ride-id')).rejects.toBeInstanceOf(ConflictException);
     const acceptSql = client.query.mock.calls[2][0] as string;
-    expect(acceptSql).toContain('city_id = (SELECT city_id FROM users WHERE id = $2)');
+    expect(acceptSql).toContain('ST_DWithin');
+    expect(acceptSql).toContain('p.search_wave_timeout_seconds');
     expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
     expect(client.release).toHaveBeenCalledTimes(1);
   });
