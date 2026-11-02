@@ -23,9 +23,6 @@ export class CreateRideDto {
 export class RideStatusDto {
   @IsIn(['driver_arriving', 'in_progress', 'completed', 'cancelled'])
   status!: 'driver_arriving' | 'in_progress' | 'completed' | 'cancelled';
-
-  @IsOptional() @IsInt() @Min(0)
-  finalFareCents?: number;
 }
 
 export class DriverLocationDto extends CoordinateDto {
