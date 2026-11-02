@@ -65,3 +65,21 @@ Não foi inserida tarifa inicial para Paulista: os valores comerciais ainda não
 ## Bloqueios de produto antes de ativar tarifa
 
 A política comercial ainda precisa ser aprovada: valor base, preço por km, preço por minuto, tarifa mínima, arredondamento, cancelamento, espera, adicional noturno/demanda e regras de repasse. Até isso existir, a API não deve apresentar uma tarifa monetária como preço real.
+
+## Implementação concluída na branch da PR #4
+
+- A criação da corrida consulta uma política de despacho ativa e vigente dentro da transação; sem política, retorna indisponibilidade e não cria corrida.
+- A corrida é criada em `searching`, com eventos auditáveis `ride_requested` e `ride_search_started` na mesma transação.
+- `GET /api/v1/drivers/me/available-rides` lista somente corridas em busca na mesma cidade, para motorista ativo, aprovado, disponível e com localização recente.
+- A busca usa PostGIS `ST_DWithin` e `ST_Distance`, ordena pela proximidade e devolve apenas o ID da corrida, distância aproximada, horário e raio vigente — sem coordenadas de motoristas.
+- As ondas de busca são progressivas por polling: o raio começa em `initial_search_radius_meters`, aumenta a cada `search_wave_timeout_seconds` e é limitado por `max_search_radius_meters`.
+- O endpoint de aceite repete no banco a validação de cidade, aprovação, disponibilidade, frescor da localização e raio vigente. O bloqueio `FOR UPDATE` e a atualização atômica continuam impedindo dupla aceitação.
+- A migration `0004_city_pricing_policy_events.sql` cria trilha de auditoria e trigger que rejeita UPDATE/DELETE dos eventos.
+
+### Limitações mantidas explicitamente
+
+- Não há notificações push/websocket; o motorista consulta por polling autenticado.
+- Não há job separado de expiração: o aumento de raio é calculado sob demanda a partir do horário de solicitação.
+- O raio/dispatch depende de política ativa; a cidade piloto ainda não tem valores comerciais aprovados nem política ativa cadastrada.
+- Não há cálculo de tarifa final nem duração de rota viária.
+- Migration 0004 está versionada e deve ser validada no CI efêmero; não aplicar no Neon nem fazer deploy sem autorização explícita.
