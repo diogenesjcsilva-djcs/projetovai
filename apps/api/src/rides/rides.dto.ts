@@ -18,20 +18,11 @@ export class CreateRideDto {
 
   @IsString() @MinLength(3) @MaxLength(300)
   destinationAddress!: string;
-
-  @IsOptional() @IsInt() @Min(1)
-  estimatedDistanceMeters?: number;
-
-  @IsOptional() @IsInt() @Min(1)
-  estimatedDurationSeconds?: number;
 }
 
 export class RideStatusDto {
   @IsIn(['driver_arriving', 'in_progress', 'completed', 'cancelled'])
   status!: 'driver_arriving' | 'in_progress' | 'completed' | 'cancelled';
-
-  @IsOptional() @IsInt() @Min(0)
-  finalFareCents?: number;
 }
 
 export class DriverLocationDto extends CoordinateDto {
@@ -40,4 +31,13 @@ export class DriverLocationDto extends CoordinateDto {
 
   @IsOptional() @IsBoolean()
   isAvailable?: boolean;
+}
+
+
+export class RideEstimateDto {
+  @ValidateNested() @Type(() => CoordinateDto)
+  pickup!: CoordinateDto;
+
+  @ValidateNested() @Type(() => CoordinateDto)
+  destination!: CoordinateDto;
 }

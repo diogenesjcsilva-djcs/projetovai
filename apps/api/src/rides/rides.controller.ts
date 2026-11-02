@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, UseGuards, Req } from '@nestjs/common';
 import { RidesService } from './rides.service';
-import { CreateRideDto, DriverLocationDto, RideStatusDto } from './rides.dto';
+import { CreateRideDto, DriverLocationDto, RideStatusDto, RideEstimateDto } from './rides.dto';
 import { AccessTokenGuard, AuthenticatedRequest } from '../auth/access-token.guard';
 import { Request } from 'express';
 
@@ -11,6 +11,11 @@ type RequestWithUser = Request & { user: AuthenticatedRequest['user'] };
 export class RidesController {
   constructor(private readonly rides: RidesService) {}
 
+  @Post('rides/estimate')
+  estimate(@Req() req: RequestWithUser, @Body() dto: RideEstimateDto) {
+    return this.rides.estimate(req.user, dto);
+  }
+
   @Post('rides')
   create(@Req() req: RequestWithUser, @Body() dto: CreateRideDto, @Headers('idempotency-key') key: string) {
     return this.rides.create(req.user, dto, key);
@@ -19,6 +24,11 @@ export class RidesController {
   @Get('rides/:id')
   findOne(@Req() req: RequestWithUser, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.rides.findOne(req.user, id);
+  }
+
+  @Get('drivers/me/available-rides')
+  availableRides(@Req() req: RequestWithUser) {
+    return this.rides.availableRides(req.user);
   }
 
   @Post('rides/:id/accept')
