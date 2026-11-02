@@ -101,6 +101,32 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
+  it('does not create a ride when the city has no active dispatch policy', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [] }) // no active policy
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+    const db = {
+      query: jest.fn().mockResolvedValue({ rows: [{
+        id: passenger.sub, role: 'passenger', city_id: 'city-id',
+      }] }),
+      connect: jest.fn().mockResolvedValue(client),
+    } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.create(passenger, {
+      pickup: { latitude: -8.0, longitude: -34.9 },
+      destination: { latitude: -8.1, longitude: -34.8 },
+      pickupAddress: 'Origem válida',
+      destinationAddress: 'Destino válido',
+    }, 'idem-no-policy')).rejects.toThrow('Política de despacho indisponível');
+
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.query.mock.calls.some(call => String(call[0]).includes('INSERT INTO rides'))).toBe(false);
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
   it('returns only nearby searching rides and orders candidates by PostGIS distance', async () => {
     const db = {
       query: jest.fn()
