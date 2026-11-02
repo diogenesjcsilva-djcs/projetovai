@@ -101,6 +101,33 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(client.release).toHaveBeenCalledTimes(1);
   });
 
+
+  it('returns a conflict when a passenger requests a second active ride with a new idempotency key', async () => {
+    const client = { query: jest.fn(), release: jest.fn() };
+    const uniqueViolation = Object.assign(new Error('unique active ride'), { code: '23505' });
+    client.query
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 'policy-id', version: 1 }] })
+      .mockRejectedValueOnce(uniqueViolation) // active passenger ride unique index
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+    const db = {
+      query: jest.fn()
+        .mockResolvedValueOnce({ rows: [{ id: passenger.sub, role: 'passenger', city_id: 'city-id' }] })
+        .mockResolvedValueOnce({ rows: [] }), // no ride with this idempotency key
+      connect: jest.fn().mockResolvedValue(client),
+    } as unknown as Pool;
+    const service = new RidesService(db);
+
+    await expect(service.create(passenger, {
+      pickup: { latitude: -8.0, longitude: -34.9 },
+      destination: { latitude: -8.1, longitude: -34.8 },
+      pickupAddress: 'Origem válida',
+      destinationAddress: 'Destino válido',
+    }, 'new-idempotency-key')).rejects.toBeInstanceOf(ConflictException);
+    expect(client.query.mock.calls.map(call => call[0])).toContain('ROLLBACK');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
   it('does not create a ride when the city has no active dispatch policy', async () => {
     const client = { query: jest.fn(), release: jest.fn() };
     client.query
