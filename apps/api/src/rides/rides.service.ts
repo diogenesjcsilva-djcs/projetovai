@@ -389,6 +389,16 @@ export class RidesService {
        VALUES ($1, $2, $3, $4, 'status_changed')`,
       [rideId, account.id, ride.status, dto.status],
     );
+    // A terminal ride releases its assigned driver back into dispatch.
+    // Keep this in the same transaction as the status change and audit event.
+    if ((dto.status === 'completed' || dto.status === 'cancelled') && ride.driver_user_id) {
+      await client.query(
+        `UPDATE driver_locations
+         SET is_available = true, updated_at = now()
+         WHERE driver_user_id = $1`,
+        [ride.driver_user_id],
+      );
+    }
     await client.query('COMMIT');
     return result.rows[0];
     } catch (error) {
