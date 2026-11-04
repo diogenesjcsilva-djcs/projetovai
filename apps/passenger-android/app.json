@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "ProjetoVai Passageiro",
+    "slug": "projetovai-passageiro",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "projetovai",
+    "android": {
+      "package": "br.com.projetovai.passenger",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+    },
+    "ios": {
+      "bundleIdentifier": "br.com.projetovai.passenger"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "O ProjetoVai usa sua localização para definir o ponto de embarque e solicitar sua corrida."
+        }
+      ],
+      "expo-secure-store"
+    ]
+  }
+}

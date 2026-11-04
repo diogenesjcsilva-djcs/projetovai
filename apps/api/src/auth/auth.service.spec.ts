@@ -25,6 +25,66 @@ describe('AuthService security defaults', () => {
     await expect(service.verifyOtp({ phone: '+5511999999999', code: '123456', role: 'passenger' }))
       .rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('never reveals a development OTP outside the staging environment', async () => {
+    const client = {
+      query: jest.fn().mockResolvedValue({ rows: [] }),
+      release: jest.fn(),
+    };
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const cache = {
+      incr: jest.fn().mockResolvedValue(1),
+      expire: jest.fn().mockResolvedValue(1),
+    } as unknown as Redis;
+    const values: Record<string, string> = {
+      AUTH_OTP_HMAC_SECRET: 'unit-test-otp-secret-at-least-32-characters',
+      APP_ENV: 'production',
+      AUTH_OTP_MODE: 'development',
+    };
+    const config = { get: jest.fn((key: string) => values[key]) } as unknown as ConfigService;
+    const smsGateway = { sendOtp: jest.fn().mockResolvedValue(undefined) } as unknown as SmsGateway;
+    const service = new AuthService(db, cache, config, smsGateway);
+
+    const result = await service.requestOtp(
+      { phone: '+5581999999998', role: 'passenger' },
+      '127.0.0.1',
+    );
+
+    expect(result).toEqual({ message: 'Se o número puder receber mensagens, o código será enviado.' });
+    expect(result).not.toHaveProperty('developmentCode');
+    expect(smsGateway.sendOtp).toHaveBeenCalledWith('+5581999999998', expect.stringMatching(/^[0-9]{6}$/));
+  });
+
+  it('returns a generated OTP only when explicit staging simulation is enabled', async () => {
+    const client = {
+      query: jest.fn().mockResolvedValue({ rows: [] }),
+      release: jest.fn(),
+    };
+    const db = { connect: jest.fn().mockResolvedValue(client) } as unknown as Pool;
+    const cache = {
+      incr: jest.fn().mockResolvedValue(1),
+      expire: jest.fn().mockResolvedValue(1),
+    } as unknown as Redis;
+    const values: Record<string, string> = {
+      AUTH_OTP_HMAC_SECRET: 'unit-test-otp-secret-at-least-32-characters',
+      APP_ENV: 'staging',
+      AUTH_OTP_MODE: 'development',
+    };
+    const config = { get: jest.fn((key: string) => values[key]) } as unknown as ConfigService;
+    const smsGateway = { sendOtp: jest.fn() } as unknown as SmsGateway;
+    const service = new AuthService(db, cache, config, smsGateway);
+
+    const result = await service.requestOtp(
+      { phone: '+5581999999999', role: 'passenger' },
+      '127.0.0.1',
+    );
+
+    expect(result.message).toBe('Código de homologação gerado.');
+    expect(result.developmentCode).toMatch(/^[0-9]{6}$/);
+    expect(smsGateway.sendOtp).not.toHaveBeenCalled();
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
 });
 
 describe('SmsGateway SMSGo integration', () => {

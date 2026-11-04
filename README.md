@@ -1,45 +1,68 @@
-# Plataforma de Transporte — Sprint 1 e fundação da Sprint 2
+# ProjetoVai — plataforma de transporte sob demanda
 
-Base inicial para uma plataforma de transporte sob demanda, com cidade piloto em Paulista/PE.
+MVP para operação piloto em Paulista, Pernambuco. O backend é um monólito modular NestJS; os clientes móveis usam React Native + Expo, com Android como primeira plataforma.
 
-## O que está incluído
+## Estrutura do monorepo
 
-- `apps/api`: API NestJS + TypeScript com endpoints de liveness e readiness.
-- `apps/passenger-android`: espaço reservado para o app do passageiro.
-- `apps/driver-android`: espaço reservado para o app do motorista.
+- `apps/api`: API NestJS/TypeScript, autenticação OTP, sessões, corridas, estimativas, despacho geográfico, política tarifária e feed de eventos.
+- `apps/passenger-android`: aplicativo Expo do passageiro (Sprint 7 em andamento).
+- `apps/driver-android`: espaço reservado para o aplicativo do motorista.
 - `apps/admin-web`: espaço reservado para o painel administrativo.
 - `packages/contracts`: tipos compartilhados entre clientes e servidor.
-- PostgreSQL com PostGIS e Redis para desenvolvimento local via Docker Compose.
-- Pipeline inicial de CI no GitHub Actions.
+- PostgreSQL/PostGIS e Redis para persistência, consultas geográficas e coordenação.
 
-A Sprint 2 inclui a modelagem de dados em `apps/api/database/migrations/0001_initial_schema.sql` e uma primeira implementação de endpoints OTP/sessão. O envio real de SMS depende de configurar/adaptar um provedor compatível; as rotas de negócio, corridas, despacho, mapas, notificações e pagamentos ainda não estão implementados. Consulte `docs/sprint-2-data-auth.md`.
-
-## Pré-requisitos
-
-- Node.js 22 LTS
-- pnpm 9+
-- Docker Engine com Docker Compose
-
-## Configuração local
-
-1. Copie `.env.example` para `.env`.
-2. Suba os serviços: `docker compose up -d`.
-3. Instale as dependências: `pnpm install`.
-4. Inicie a API: `pnpm --filter @transporte/api start:dev`.
-5. Verifique `http://localhost:3000/api/v1/health` e `http://localhost:3000/api/v1/health/ready`.
-
-`/health` verifica se o processo responde. `/health/ready` verifica também PostgreSQL e Redis.
-
-## Decisões registradas
+## Decisões de arquitetura
 
 - Cidade piloto: Paulista, Região Metropolitana do Recife, Pernambuco.
-- Hospedagem: infraestrutura gerenciada; fornecedor final a escolher após validar custo, região, WebSockets e processos persistentes.
-- Login planejado: telefone com código de uso único por SMS.
-- Backend: monólito modular NestJS.
-- Banco: PostgreSQL/PostGIS; Redis para estado temporário e coordenação.
-- Clientes: Android primeiro, com React Native/Expo para permitir entrega iOS posterior.
-- API versionada em `/api/v1`.
+- Android primeiro; React Native + Expo permite preparar iOS posteriormente.
+- PostgreSQL/PostGIS como fonte de verdade; Redis para estado temporário e coordenação.
+- API REST versionada em `/api/v1`.
+- Login por telefone com OTP; SMS real permanece pausado durante a homologação.
+- Pagamentos planejados: Pix, cartão e dinheiro. Nenhum fluxo de pagamento está ativo ainda.
 
-## Antes de produção
+## Aplicativo do passageiro
 
-Configurar TLS, domínio, CORS restrito, rate limits, secrets gerenciados, backups e restauração testada. Selecionar provedores de SMS, mapas, push e pagamentos. Revisar LGPD, regras municipais e operação de transporte remunerado. Não exponha a API publicamente antes de implementar autenticação, autorização, limitação de requisições e observabilidade.
+Na raiz do repositório:
+
+```bash
+pnpm install
+pnpm --filter @transporte/passenger-android start
+```
+
+O app usa por padrão o backend de staging. Para outro ambiente, defina `EXPO_PUBLIC_API_URL` com a URL completa incluindo `/api/v1`.
+
+A Sprint 7 está em andamento no PR #7. O fluxo atual inclui login OTP, sessão segura, geocodificação de endereços, consulta de estimativa e polling do status da corrida. A solicitação é bloqueada quando a API não fornece tarifa válida.
+
+Para autenticação sem SMS real, o backend só devolve o OTP quando as duas variáveis abaixo estiverem configuradas **exclusivamente no Render staging**:
+
+- `APP_ENV=staging`
+- `AUTH_OTP_MODE=development`
+
+Não habilite o modo de simulação em produção.
+
+## Estado do piloto
+
+- A API de staging está hospedada no Render.
+- A infraestrutura de dados usa Neon PostgreSQL/PostGIS e Redis.
+- O backend já possui estrutura de estimativa, criação, busca/aceite de corridas, concorrência e feed de eventos.
+- A política tarifária operacional de Paulista e o cálculo de duração/rota ainda precisam ser validados. Enquanto não houver estimativa de tarifa válida, o app não solicita uma corrida.
+- O aplicativo do motorista, mapas/rotas, notificações push e pagamentos ainda precisam ser desenvolvidos/integrados.
+
+## Validação
+
+```bash
+pnpm install
+pnpm --filter @transporte/api build
+pnpm --filter @transporte/api test
+pnpm --filter @transporte/passenger-android typecheck
+pnpm --filter @transporte/passenger-android export:android
+```
+
+O CI também valida migrations PostgreSQL/PostGIS e testes de integração com banco e Redis.
+
+## Segurança e produção
+
+- Nunca grave segredos no repositório ou em logs.
+- Não aplique migrations no banco de produção sem backup e autorização explícita.
+- Antes do piloto: configurar TLS, domínio, CORS restrito, rate limits, secrets gerenciados, backups/restauração, observabilidade e revisão LGPD.
+- Selecionar e validar provedores de mapas/rotas, SMS, push e pagamentos antes de ativar essas integrações.

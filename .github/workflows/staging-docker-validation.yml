@@ -12,6 +12,7 @@ on:
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - 'apps/api/**'
+      - 'apps/passenger-android/**'
       - 'packages/**'
       - 'docs/sprint-3-rides-foundation.md'
   pull_request:
@@ -24,6 +25,7 @@ on:
       - 'package.json'
       - 'pnpm-workspace.yaml'
       - 'apps/api/**'
+      - 'apps/passenger-android/**'
       - 'packages/**'
 
 permissions:
@@ -107,7 +109,7 @@ jobs:
         run: docker build --tag projetovai-api-staging:validation .
 
       - name: Commit generated lockfile on feature branch after successful validation
-        if: success() && github.event_name == 'push'
+        if: success()
         shell: bash
         run: |
           set -euo pipefail
@@ -123,4 +125,4 @@ jobs:
             exit 0
           fi
           git commit -m "build: add validated pnpm lockfile"
-          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "HEAD:${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"

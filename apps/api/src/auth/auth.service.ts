@@ -30,7 +30,7 @@ export class AuthService {
     private readonly sms: SmsGateway,
   ) {}
 
-  async requestOtp(dto: RequestOtpDto, requestIp: string): Promise<{ message: string }> {
+  async requestOtp(dto: RequestOtpDto, requestIp: string): Promise<{ message: string; developmentCode?: string }> {
     const otpSecret = this.config.get<string>('AUTH_OTP_HMAC_SECRET');
     if (!otpSecret || otpSecret.length < 32) {
       throw new ForbiddenException('Autenticação ainda não configurada');
@@ -61,6 +61,13 @@ export class AuthService {
       throw error;
     } finally {
       client.release();
+    }
+
+    const stagingOtpMode =
+      this.config.get<string>('APP_ENV') === 'staging' &&
+      this.config.get<string>('AUTH_OTP_MODE') === 'development';
+    if (stagingOtpMode) {
+      return { message: 'Código de homologação gerado.', developmentCode: code };
     }
 
     await this.sms.sendOtp(dto.phone, code);
