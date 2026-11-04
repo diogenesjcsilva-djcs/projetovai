@@ -59,5 +59,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f apps/api/database/tests/0004_postgis_dispatch.sql
       - name: Build API
         run: pnpm --filter @transporte/api build
+      - name: Typecheck passenger app
+        run: pnpm --filter @transporte/passenger-android typecheck
+      - name: Export passenger Android bundle
+        run: pnpm --filter @transporte/passenger-android export:android
       - name: Run unit and integration tests
         run: RUN_INTEGRATION_TESTS=1 pnpm --filter @transporte/api test
