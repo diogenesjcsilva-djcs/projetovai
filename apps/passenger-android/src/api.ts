@@ -1,8 +1,15 @@
 import { clearSession, readSession, saveSession, type Session } from './session';
 
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://projetovai-api-staging-g2qc.onrender.com/api/v1').replace(/\\/+$/, '');
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://projetovai-api-staging-g2qc.onrender.com/api/v1';
 
 type ApiErrorBody = { message?: string | string[]; error?: string };
+
+class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 export type Coordinate = { latitude: number; longitude: number };
 export type Ride = {
   id: string;
@@ -27,7 +34,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({} as ApiErrorBody));
   if (!response.ok) {
     const message = (body as ApiErrorBody).message;
-    throw new Error(Array.isArray(message) ? message.join(', ') : message ?? ('Erro HTTP ' + response.status));
+    throw new ApiError(Array.isArray(message) ? message.join(', ') : message ?? ('Erro HTTP ' + response.status), response.status);
   }
   return body as T;
 }
@@ -47,7 +54,7 @@ async function authenticatedRequest<T>(path: string, init: RequestInit = {}): Pr
   try {
     return await rawRequest<T>(path, init, session.accessToken);
   } catch (error) {
-    if (!(error instanceof Error) || !error.message.startsWith('Erro HTTP 401')) throw error;
+    if (!(error instanceof ApiError) || error.status !== 401) throw error;
     try {
       const refreshed = await rawRequest<Session>('/auth/session/refresh', {
         method: 'POST',
