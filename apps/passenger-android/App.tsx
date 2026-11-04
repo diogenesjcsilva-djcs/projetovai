@@ -87,6 +87,33 @@ export default function App() {
     return matches[0];
   }
 
+  async function handleUseCurrentLocation() {
+    setBusy(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        throw new Error('Permita o acesso à localização para usar sua posição como embarque.');
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const places = await Location.reverseGeocodeAsync(position.coords);
+      const place = places[0];
+      if (!place) throw new Error('Não foi possível identificar seu endereço atual.');
+      const label = [
+        place.street,
+        place.streetNumber,
+        place.district,
+        place.city,
+        place.region,
+      ].filter(Boolean).join(', ');
+      if (!label) throw new Error('Não foi possível identificar seu endereço atual.');
+      setPickupAddress(label);
+    } catch (error) {
+      Alert.alert('Localização indisponível', error instanceof Error ? error.message : 'Tente informar o endereço manualmente.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRequestRide() {
     if (!pickupAddress.trim() || !destinationAddress.trim()) {
       Alert.alert('Preencha os endereços', 'Informe o local de embarque e o destino.');
@@ -95,10 +122,6 @@ export default function App() {
     setBusy(true);
     setNotice('');
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        throw new Error('A permissão de localização é necessária para localizar os endereços.');
-      }
       const [pickup, destination] = await Promise.all([
         resolveAddress(pickupAddress.trim()),
         resolveAddress(destinationAddress.trim()),
@@ -212,6 +235,9 @@ export default function App() {
                 onChangeText={setPickupAddress}
                 placeholder="Rua, número, bairro, Paulista - PE"
               />
+              <Pressable onPress={handleUseCurrentLocation} disabled={busy} style={styles.locationButton}>
+                <Text style={styles.link}>Usar minha localização atual</Text>
+              </Pressable>
               <Text style={styles.label}>Destino</Text>
               <TextInput
                 style={styles.input}
@@ -267,6 +293,7 @@ const styles = StyleSheet.create({
   notice: { color: '#555B7A', backgroundColor: '#F0F1FF', borderRadius: 12, padding: 12, lineHeight: 20, marginTop: 14 },
   devCode: { color: '#2E7D55', fontWeight: '700', marginTop: 10 },
   linkButton: { alignItems: 'center', padding: 14 },
+  locationButton: { alignSelf: 'flex-start', paddingVertical: 10 },
   link: { color: INDIGO, fontWeight: '700' },
   welcomeRow: { flexDirection: 'row', alignItems: 'flex-start' },
   ridePanel: { marginTop: 20, borderRadius: 14, padding: 16, backgroundColor: '#F0F1FF' },
