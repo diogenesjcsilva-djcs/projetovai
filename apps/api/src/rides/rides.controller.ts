@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, UseGuards, Req, Query } from '@nestjs/common';
 import { RidesService } from './rides.service';
 import { CreateRideDto, DriverLocationDto, RideStatusDto, RideEstimateDto } from './rides.dto';
 import { AccessTokenGuard, AuthenticatedRequest } from '../auth/access-token.guard';
@@ -29,6 +29,15 @@ export class RidesController {
   @Get('drivers/me/available-rides')
   availableRides(@Req() req: RequestWithUser) {
     return this.rides.availableRides(req.user);
+  }
+
+  @Get('rides/:id/events')
+  events(
+    @Req() req: RequestWithUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('after') after?: string,
+  ) {
+    return this.rides.events(req.user, id, after);
   }
 
   @Post('rides/:id/accept')
