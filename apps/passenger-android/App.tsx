@@ -82,7 +82,8 @@ export default function App() {
   }
 
   async function resolveAddress(address: string): Promise<Location.LocationGeocodedLocation> {
-    const matches = await Location.geocodeAsync(address);
+    const scopedAddress = /paulista/i.test(address) ? address : address + ', Paulista, PE, Brasil';
+    const matches = await Location.geocodeAsync(scopedAddress);
     if (!matches.length) throw new Error('Não encontramos o endereço: ' + address);
     return matches[0];
   }
@@ -152,11 +153,13 @@ export default function App() {
     setBusy(true);
     try {
       await logout();
+    } catch {
+      // Local credentials are cleared even when the API is temporarily unavailable.
+    } finally {
       setSession(null);
       setRide(null);
       setCodeRequested(false);
       setDevelopmentCode(null);
-    } finally {
       setBusy(false);
     }
   }
