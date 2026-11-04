@@ -264,4 +264,36 @@ describe('RidesService ride lifecycle safeguards', () => {
     expect(client.query.mock.calls.map(call => call[0])).toContain('COMMIT');
     expect(client.release).toHaveBeenCalledTimes(1);
   });
+  it('returns ride events only to an authorized participant and supports a stable cursor', async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce({ rows: [{ id: passenger.sub, role: 'passenger', city_id: 'city-id' }] })
+      .mockResolvedValueOnce({ rows: [{ passenger_user_id: passenger.sub, driver_user_id: null }] })
+      .mockResolvedValueOnce({ rows: [{
+        id: '11111111-1111-4111-8111-111111111111',
+        previous_status: 'requested', new_status: 'searching',
+        event_type: 'ride_search_started', metadata: {}, created_at: new Date(),
+      }] });
+    const service = new RidesService({ query } as unknown as Pool);
+
+    const result = await service.events(passenger, 'ride-id');
+    expect(result.events).toHaveLength(1);
+    expect(result.nextCursor).toBe('11111111-1111-4111-8111-111111111111');
+    expect(result.hasMore).toBe(false);
+    expect(query.mock.calls[2][0]).toContain('ORDER BY created_at ASC, id ASC');
+    expect(query.mock.calls[2][0]).toContain('LIMIT 100');
+  });
+
+  it('rejects an event cursor that does not belong to the requested ride', async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce({ rows: [{ id: passenger.sub, role: 'passenger', city_id: 'city-id' }] })
+      .mockResolvedValueOnce({ rows: [{ passenger_user_id: passenger.sub, driver_user_id: null }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const service = new RidesService({ query } as unknown as Pool);
+
+    await expect(service.events(
+      passenger, 'ride-id', '11111111-1111-4111-8111-111111111111',
+    )).rejects.toThrow('Cursor não pertence a esta corrida');
+    expect(query).toHaveBeenCalledTimes(3);
+  });
+
 });
