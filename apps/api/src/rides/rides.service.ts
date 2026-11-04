@@ -409,6 +409,55 @@ export class RidesService {
     }
   }
 
+  async events(user: AuthenticatedRequest['user'], rideId: string, after?: string) {
+    const account = await this.activeUser(user.sub);
+    if (!account) throw new ForbiddenException('Conta indisponível');
+
+    const rideResult = await this.db.query(
+      `SELECT passenger_user_id, driver_user_id FROM rides WHERE id = $1`,
+      [rideId],
+    );
+    const ride = rideResult.rows[0] as
+      | { passenger_user_id: string; driver_user_id: string | null }
+      | undefined;
+    if (!ride) throw new NotFoundException('Corrida não encontrada');
+    if (account.role !== 'admin' &&
+        ride.passenger_user_id !== account.id &&
+        ride.driver_user_id !== account.id) {
+      throw new ForbiddenException('Sem acesso a esta corrida');
+    }
+
+    let cursor: { id: string; created_at: Date } | undefined;
+    if (after !== undefined) {
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(after)) {
+        throw new BadRequestException('Cursor de eventos inválido');
+      }
+      const cursorResult = await this.db.query(
+        `SELECT id, created_at FROM ride_events WHERE id = $1 AND ride_id = $2`,
+        [after, rideId],
+      );
+      cursor = cursorResult.rows[0] as { id: string; created_at: Date } | undefined;
+      if (!cursor) throw new BadRequestException('Cursor não pertence a esta corrida');
+    }
+
+    const result = await this.db.query(
+      `SELECT id, previous_status, new_status, event_type, metadata, created_at
+       FROM ride_events
+       WHERE ride_id = $1
+         AND ($2::timestamptz IS NULL OR (created_at, id) > ($2::timestamptz, $3::uuid))
+       ORDER BY created_at ASC, id ASC
+       LIMIT 100`,
+      [rideId, cursor?.created_at ?? null, cursor?.id ?? null],
+    );
+    const events = result.rows;
+    return {
+      events,
+      nextCursor: events.length ? events[events.length - 1].id : after ?? null,
+      hasMore: events.length === 100,
+      polling: true,
+    };
+  }
+
   async updateLocation(user: AuthenticatedRequest['user'], dto: DriverLocationDto) {
     if (user.role !== 'driver') throw new ForbiddenException('Apenas motoristas podem atualizar localização');
     const account = await this.activeUser(user.sub);
